@@ -1,0 +1,14 @@
+-- Новые значения статуса заявки: pending_signing, product_request, terms_negotiation, pending_release
+-- Если колонка `applications.status` имеет тип VARCHAR — дополнительных действий не нужно.
+-- Если в вашей БД используется ENUM, выполните ALTER с полным списком значений, например:
+--
+-- ALTER TABLE applications MODIFY COLUMN status ENUM(
+--   'new',
+--   'in_progress',
+--   'pending_signing',
+--   'product_request',
+--   'terms_negotiation',
+--   'pending_release',
+--   'completed',
+--   'failed'
+-- ) NOT NULL DEFAULT 'new';

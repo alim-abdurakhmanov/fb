@@ -1,0 +1,11 @@
+# Запрет прямого доступа к файлам. Выдача только через api_serve_upload.php
+# Для nginx добавьте в конфиг:
+#   location ^~ /uploads/ { deny all; return 403; }
+
+<IfModule mod_authz_core.c>
+    Require all denied
+</IfModule>
+<IfModule !mod_authz_core.c>
+    Order deny,allow
+    Deny from all
+</IfModule>

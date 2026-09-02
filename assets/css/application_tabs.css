@@ -1,0 +1,97 @@
+.application-tabs .nav-link {
+    border: none;
+    padding: 1rem 1.5rem;
+    font-weight: 500;
+    color: #6c757d;
+    border-bottom: 3px solid transparent;
+    border-radius: 0;
+    background: transparent;
+}
+
+.application-tabs .nav-link.active {
+    color: #3498db;
+    border-bottom-color: #3498db;
+    background: transparent;
+}
+
+.application-tabs .nav-link:hover {
+    border-bottom-color: #dee2e6;
+    color: #495057;
+}
+
+.tab-content {
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 2px 20px rgba(0, 0, 0, 0.08);
+    border: 1px solid #e9ecef;
+}
+
+.tab-pane {
+    padding: 2rem;
+}
+
+@media (max-width: 768px) {
+    .application-tabs {
+        display: flex;
+        flex-wrap: nowrap !important;
+        overflow-x: auto;
+        white-space: nowrap;
+        -webkit-overflow-scrolling: touch;
+        border-bottom: 1px solid #e9ecef;
+        gap: 0;
+        padding: 0;
+        margin-bottom: 0 !important;
+    }
+
+    .application-tabs::-webkit-scrollbar {
+        display: none;
+    }
+
+    .application-tabs .nav-item {
+        flex: 0 0 auto;
+    }
+
+    .application-tabs .nav-link {
+        border: none;
+        border-bottom: 2px solid transparent;
+        border-radius: 0;
+        background: transparent;
+        padding: 0.6rem 0.75rem;
+        font-size: 0.82rem;
+        font-weight: 500;
+        line-height: 1.2;
+        white-space: nowrap;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        color: #6c757d;
+    }
+
+    .application-tabs .nav-link.active {
+        background: transparent;
+        border-bottom-color: #3498db;
+        color: #3498db;
+        font-weight: 600;
+    }
+
+    .application-tabs .nav-link .bi {
+        display: none;
+    }
+
+    .application-tabs .nav-link .tab-label {
+        display: inline;
+    }
+
+    .tab-content {
+        background: #fff;
+        border: 1px solid #e9ecef;
+        border-top: none;
+        border-radius: 0 0 12px 12px;
+        box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
+    }
+
+    .tab-pane {
+        padding: 0.85rem;
+        font-size: 0.9rem;
+    }
+}

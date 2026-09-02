@@ -1,0 +1,28 @@
+# Секреты и локальная конфигурация
+/config.php
+
+# Зависимости (на сервере: composer install)
+/vendor/
+
+# Загруженные файлы пользователей
+/uploads/*
+!/uploads/.htaccess
+!/uploads/index.php
+
+# Кэш аналитики
+/analytics_cache/
+
+# Дампы БД (используйте migrations/)
+/finbuild_web_dev.sql
+/support_schema.sql
+
+# SSL-проверки, локальные заметки
+/.well-known/
+/security_plan.txt
+
+# OS / IDE
+Thumbs.db
+.DS_Store
+.idea/
+.vscode/
+*.log
