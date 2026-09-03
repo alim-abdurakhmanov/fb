@@ -888,12 +888,13 @@ require_once 'header.php';
                         </div>
                         <div class="finscore-meta">
                             <h5><?= htmlspecialchars((string) ($fs['company_name'] ?? $calculationData['company_name'] ?? 'Компания')) ?></h5>
-                            <div class="text-muted mb-2">
+                            <div class="text-muted mb-1">
                                 ИНН <?= htmlspecialchars((string) ($calculationData['inn'] ?? '')) ?>
-                                · Оценка <?= htmlspecialchars($grade) ?> — <?= htmlspecialchars($gradeLabel) ?>
+                                · FinScore <?= $score ?> из 100 · класс <?= htmlspecialchars($grade) ?>
                             </div>
+                            <div class="fw-semibold mb-2"><?= htmlspecialchars($gradeLabel) ?></div>
                             <?php if (!empty($fs['confidence']['label'])): ?>
-                                <div class="text-muted small mb-2">Расчёт <?= htmlspecialchars((string) $fs['confidence']['label']) ?></div>
+                                <div class="text-warning small mb-2"><?= htmlspecialchars((string) $fs['confidence']['label']) ?></div>
                             <?php endif; ?>
                             <?php if ($individualOnly || $limitVal <= 0): ?>
                                 <div class="finscore-range">Индивидуально</div>

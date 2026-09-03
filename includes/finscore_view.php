@@ -122,11 +122,17 @@ function finscore_render_header_html(?array $finscore): string
     $html .= '</div></div>';
     $html .= '<div class="fs-meta">';
     $html .= '<h5 class="mb-1">' . finscore_h($companyName) . '</h5>';
-    $html .= '<div class="fs-grade-line">Оценка ' . finscore_h($grade) . ' — ' . finscore_h($gradeLabel) . '</div>';
-    if ($confidence !== '') {
-        $html .= '<div class="fs-data-line">Расчёт ' . finscore_h($confidence) . '</div>';
+    $html .= '<div class="fs-grade-line">FinScore ' . $score . ' из 100 · класс ' . finscore_h($grade) . '</div>';
+    if ($gradeLabel !== '') {
+        $html .= '<div class="fs-verdict-line">' . finscore_h($gradeLabel) . '</div>';
     }
-    $html .= '<div class="text-muted small mt-2">' . finscore_h((string) ($finscore['recommendation'] ?? '')) . '</div>';
+    if ($confidence !== '') {
+        $html .= '<div class="fs-data-line">' . finscore_h($confidence) . '</div>';
+    }
+    $recommendation = (string) ($finscore['recommendation'] ?? '');
+    if ($recommendation !== '' && $recommendation !== $gradeLabel) {
+        $html .= '<div class="text-muted small mt-2">' . finscore_h($recommendation) . '</div>';
+    }
     $html .= '</div></div>';
 
     $html .= '<div class="fs-limits">';
