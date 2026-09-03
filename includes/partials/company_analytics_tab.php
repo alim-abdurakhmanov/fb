@@ -16,7 +16,7 @@ $companyInn = htmlspecialchars((string) ($application['inn'] ?? ''));
         <?php if (!$analyticsReadOnly): ?>
         <div>
             <button type="button" class="btn btn-primary" onclick="loadAnalytics(true)" id="load-analytics-btn">
-                <i class="bi bi-arrow-clockwise me-2"></i>Обновить данные
+                <i class="bi bi-arrow-clockwise me-2"></i>Обновить FinScore
             </button>
         </div>
         <?php endif; ?>

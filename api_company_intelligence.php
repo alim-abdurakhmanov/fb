@@ -1,6 +1,7 @@
 <?php
 /**
  * Единый API FinScore / лимиты / факторы риска по ИНН.
+ * Используется отдельной страницей analytics.php и калькулятором лимитов.
  */
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/includes/finscore.php';
@@ -22,6 +23,7 @@ if ($inn === '' || (strlen($inn) !== 10 && strlen($inn) !== 12)) {
 
 $productType = (string) ($_GET['product_type'] ?? $_POST['product_type'] ?? 'bg');
 $existingCredits = (float) ($_GET['existing_credits'] ?? $_POST['existing_credits'] ?? 0);
+$shouldLog = !empty($_GET['log']) || !empty($_POST['log']);
 
 try {
     $built = finscore_build_for_inn($inn, [
@@ -36,6 +38,28 @@ try {
             'error' => $built['error'] ?? 'Не удалось рассчитать FinScore',
         ], JSON_UNESCAPED_UNICODE);
         exit;
+    }
+
+    if ($shouldLog) {
+        try {
+            $pdo = getPDO();
+            $stmt = $pdo->prepare(
+                'INSERT INTO analytics_requests (user_id, inn, response_data, created_at) VALUES (?, ?, ?, NOW())'
+            );
+            $stmt->execute([
+                (int) $_SESSION['user_id'],
+                $inn,
+                json_encode([
+                    'company' => $built['raw']['company'] ?? null,
+                    'finance' => $built['raw']['finance'] ?? null,
+                    'enforcements' => $built['raw']['enforcements'] ?? null,
+                    'lawsuits' => $built['raw']['lawsuits'] ?? null,
+                    'finscore' => $built['result'] ?? null,
+                ], JSON_UNESCAPED_UNICODE),
+            ]);
+        } catch (Throwable $logError) {
+            error_log('api_company_intelligence log: ' . $logError->getMessage());
+        }
     }
 
     echo json_encode([
