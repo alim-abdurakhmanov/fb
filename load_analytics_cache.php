@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/config.php';
+require_once __DIR__ . '/includes/finscore.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
@@ -42,8 +43,28 @@ if (!$fileData) {
     exit;
 }
 
+$analytics = is_string($fileData['data'] ?? null)
+    ? json_decode($fileData['data'], true)
+    : ($fileData['data'] ?? null);
+
+$finscore = $fileData['finscore'] ?? null;
+if (!is_array($finscore) && is_array($analytics)) {
+    $pdo = $pdo ?? getPDO();
+    $stmt = $pdo->prepare('SELECT inn FROM applications WHERE id = ?');
+    $stmt->execute([$applicationId]);
+    $inn = (string) ($stmt->fetchColumn() ?: '');
+    $finscore = finscore_evaluate([
+        'inn' => $inn,
+        'company' => $analytics['company']['data'] ?? null,
+        'finance' => $analytics['finance']['data'] ?? null,
+        'enforcements' => $analytics['enforcements']['data'] ?? null,
+        'lawsuits' => $analytics['lawsuits']['data'] ?? null,
+    ], ['product_type' => 'bg']);
+}
+
 echo json_encode([
     'success' => true,
-    'data' => json_decode($fileData['data'], true),
+    'data' => $analytics,
+    'finscore' => $finscore,
     'timestamp' => $fileData['timestamp'],
 ], JSON_UNESCAPED_UNICODE);
