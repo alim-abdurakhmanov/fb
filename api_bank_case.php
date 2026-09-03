@@ -18,6 +18,8 @@ if (!isset($_SESSION['user_id']) || !finbuild_sync_session_user()) {
 $pdo = getPDO();
 $userId = (int) $_SESSION['user_id'];
 $role = (string) ($_SESSION['role'] ?? '');
+$currentUser = getCurrentUser() ?: ['role' => $role, 'id' => $userId];
+$canBankWork = finbuild_can_work_with_banks($currentUser);
 
 $action = $_POST['action'] ?? $_GET['action'] ?? '';
 
@@ -29,7 +31,8 @@ function json_out(array $data): void
 
 function assert_manager_product(PDO $pdo, int $applicationProductId): ?array
 {
-    if (!finbuild_is_manager((string) ($_SESSION['role'] ?? ''))) {
+    $user = getCurrentUser() ?: ['role' => (string) ($_SESSION['role'] ?? '')];
+    if (!finbuild_can_work_with_banks($user)) {
         return null;
     }
     $stmt = $pdo->prepare(
@@ -41,6 +44,14 @@ function assert_manager_product(PDO $pdo, int $applicationProductId): ?array
     $stmt->execute([$applicationProductId]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
     if (!$row || !finbank_is_portal_application_product($row)) {
+        return null;
+    }
+    $applicationId = (int) ($row['application_id'] ?? 0);
+    $role = (string) ($user['role'] ?? $_SESSION['role'] ?? '');
+    $userId = (int) ($user['id'] ?? $_SESSION['user_id'] ?? 0);
+    $isAnalystFlag = function_exists('finbuild_user_is_analyst_flag') && finbuild_user_is_analyst_flag($user);
+    if ($applicationId > 0 && function_exists('finbuild_can_access_application')
+        && !finbuild_can_access_application($pdo, $applicationId, $role, $userId, $isAnalystFlag)) {
         return null;
     }
     return $row;
@@ -60,7 +71,7 @@ function assert_bank_case(PDO $pdo, int $caseId): ?array
 }
 
 try {
-    if ($action === 'manager_get' && finbuild_is_manager($role)) {
+    if ($action === 'manager_get' && $canBankWork) {
         $applicationProductId = (int) ($_GET['application_product_id'] ?? 0);
         $row = assert_manager_product($pdo, $applicationProductId);
         if (!$row) {
@@ -174,7 +185,7 @@ try {
         ]);
     }
 
-    if ($action === 'manager_toggle_item' && finbuild_is_manager($role) && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    if ($action === 'manager_toggle_item' && $canBankWork && $_SERVER['REQUEST_METHOD'] === 'POST') {
         $applicationProductId = (int) ($_POST['application_product_id'] ?? 0);
         $itemId = (int) ($_POST['item_id'] ?? 0);
         $excluded = (int) ($_POST['excluded'] ?? 0) ? 1 : 0;
@@ -193,7 +204,7 @@ try {
         json_out(['success' => true]);
     }
 
-    if ($action === 'manager_upload' && finbuild_is_manager($role) && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    if ($action === 'manager_upload' && $canBankWork && $_SERVER['REQUEST_METHOD'] === 'POST') {
         $applicationProductId = (int) ($_POST['application_product_id'] ?? 0);
         $row = assert_manager_product($pdo, $applicationProductId);
         if (!$row) {
@@ -245,7 +256,7 @@ try {
         json_out(['success' => true, 'upload_id' => (int) $pdo->lastInsertId()]);
     }
 
-    if ($action === 'manager_delete_upload' && finbuild_is_manager($role) && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    if ($action === 'manager_delete_upload' && $canBankWork && $_SERVER['REQUEST_METHOD'] === 'POST') {
         $applicationProductId = (int) ($_POST['application_product_id'] ?? 0);
         $uploadId = (int) ($_POST['upload_id'] ?? 0);
         $row = assert_manager_product($pdo, $applicationProductId);
@@ -269,7 +280,7 @@ try {
         json_out(['success' => true]);
     }
 
-    if ($action === 'manager_submit' && finbuild_is_manager($role) && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    if ($action === 'manager_submit' && $canBankWork && $_SERVER['REQUEST_METHOD'] === 'POST') {
         $applicationProductId = (int) ($_POST['application_product_id'] ?? 0);
         $comment = trim((string) ($_POST['manager_comment'] ?? ''));
         $row = assert_manager_product($pdo, $applicationProductId);
@@ -321,7 +332,7 @@ try {
         if ($text === '' && !$hasFiles) {
             json_out(['success' => false, 'error' => 'Введите сообщение или прикрепите файл']);
         }
-        if (finbuild_is_manager($role)) {
+        if ($canBankWork) {
             $stmt = $pdo->prepare(
                 'SELECT c.id, c.status, ap.id AS application_product_id FROM application_product_bank_cases c
                  JOIN application_products ap ON ap.id = c.application_product_id

@@ -211,6 +211,84 @@ function notify_manager_assigned(PDO $pdo, int $applicationId, int $managerUserI
 /**
  * Сообщение в чате продукта: менеджеру (клиент написал) или владельцу заявки (менеджер написал).
  */
+function notify_intake_review_result(
+    PDO $pdo,
+    int $applicationId,
+    string $action,
+    int $principalUserId,
+    bool $createdClient,
+    string $plainPassword = ''
+): void {
+    $stmt = $pdo->prepare('SELECT id, created_by, company_name, approved_amount, approved_limit, amount FROM applications WHERE id = ? LIMIT 1');
+    $stmt->execute([$applicationId]);
+    $app = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$app) {
+        return;
+    }
+    $base = finbuild_site_base_url();
+    $link = $base !== '' ? $base . '/application_details.php?id=' . $applicationId : '';
+    $company = htmlspecialchars((string) ($app['company_name'] ?? ''));
+
+    if ($action === 'reject') {
+        $ownerId = (int) $app['created_by'];
+        $email = finbuild_user_notification_email($pdo, $ownerId);
+        if ($email) {
+            $html = '<p>Запрос на банковскую гарантию по заявке №' . $applicationId . ' отклонён.</p>';
+            if ($link !== '') {
+                $html .= '<p><a href="' . htmlspecialchars($link) . '">Открыть заявку</a></p>';
+            }
+            finbuild_send_mail($email, 'Заявка №' . $applicationId . ' отклонена', $html);
+        }
+        return;
+    }
+
+    $sumText = '';
+    if (!empty($app['approved_limit'])) {
+        $sumText = 'установлен лимит ' . number_format((float) $app['approved_limit'], 0, '.', ' ') . ' ₽';
+    } elseif (!empty($app['approved_amount'])) {
+        $sumText = 'одобрена сумма ' . number_format((float) $app['approved_amount'], 0, '.', ' ') . ' ₽';
+    } elseif (!empty($app['amount'])) {
+        $sumText = 'одобрена сумма ' . number_format((float) $app['amount'], 0, '.', ' ') . ' ₽';
+    }
+
+    $ownerId = (int) $app['created_by'];
+    $ownerEmail = finbuild_user_notification_email($pdo, $ownerId);
+    if ($ownerEmail) {
+        $html = '<p>Ваш запрос по заявке №' . $applicationId . ' одобрен'
+            . ($sumText !== '' ? ': ' . htmlspecialchars($sumText) : '')
+            . '.</p>';
+        if ($company !== '') {
+            $html .= '<p>Принципал: <strong>' . $company . '</strong></p>';
+        }
+        if ($link !== '') {
+            $html .= '<p><a href="' . htmlspecialchars($link) . '">Открыть заявку</a></p>';
+        }
+        finbuild_send_mail($ownerEmail, 'Заявка №' . $applicationId . ' одобрена', $html);
+    }
+
+    if ($principalUserId > 0) {
+        $clientEmail = finbuild_user_notification_email($pdo, $principalUserId);
+        if ($clientEmail) {
+            $html = '<p>Вам открыт доступ к заявке №' . $applicationId
+                . ($company !== '' ? ' (' . $company . ')' : '')
+                . '.</p>';
+            if ($sumText !== '') {
+                $html .= '<p>' . htmlspecialchars(ucfirst($sumText)) . '.</p>';
+            }
+            if ($createdClient && $plainPassword !== '') {
+                $html .= '<p>Логин: ваш e-mail<br>Временный пароль: <strong>' . htmlspecialchars($plainPassword) . '</strong></p>';
+            }
+            if ($link !== '') {
+                $html .= '<p><a href="' . htmlspecialchars($link) . '">Открыть заявку</a></p>';
+            }
+            finbuild_send_mail($clientEmail, 'Доступ к заявке №' . $applicationId, $html);
+        }
+    }
+}
+
+/**
+ * Сообщение в чате продукта: менеджеру (клиент написал) или владельцу заявки (менеджер написал).
+ */
 function notify_product_chat_message(
     PDO $pdo,
     int $applicationProductId,

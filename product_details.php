@@ -3,6 +3,7 @@ $current_page = 'applications';
 require_once 'config.php';
 require_once __DIR__ . '/includes/chat_helpers.php';
 require_once __DIR__ . '/includes/upload_access.php';
+require_once __DIR__ . '/includes/beneficiary_intake.php';
 checkAuth();
 
 $pdo = getPDO();
@@ -25,6 +26,7 @@ $stmt = $pdo->prepare("
            a.created_at as app_created_at, a.status as app_status, 
            a.created_by as application_creator,
            a.assigned_to as application_assigned_to,
+           a.principal_user_id, a.intake_status,
            u.first_name, u.last_name, u.company_name as user_company, 
            u.role as user_role
     FROM application_products ap
@@ -63,8 +65,23 @@ if (!finbuild_can_access_application(
     exit();
 }
 
+$canUseProductChat = finbuild_can_use_product_chat($currentUser);
+$chatThread = finbuild_chat_normalize_thread(
+    (string) (finbuild_chat_thread_for_viewer($currentUser, $productApp) ?? 'principal')
+);
+if (finbuild_is_manager($userRole)) {
+    $reqThread = finbuild_chat_normalize_thread((string) ($_GET['chat_thread'] ?? $_POST['chat_thread'] ?? 'principal'));
+    $allowedChatThreads = finbuild_chat_allowed_threads_for_viewer($currentUser, $productApp);
+    $chatThread = in_array($reqThread, $allowedChatThreads, true) ? $reqThread : $allowedChatThreads[0];
+} else {
+    $allowedChatThreads = finbuild_chat_allowed_threads_for_viewer($currentUser, $productApp);
+    if (!in_array($chatThread, $allowedChatThreads, true)) {
+        $chatThread = $allowedChatThreads[0];
+    }
+}
+
 require_once __DIR__ . '/includes/bank_portal.php';
-$showBankWorkTab = (finbuild_is_manager($userRole) && finbank_is_portal_application_product($productApp));
+$showBankWorkTab = finbuild_can_work_with_banks($currentUser) && finbank_is_portal_application_product($productApp);
 $productTab = $_GET['tab'] ?? 'details';
 $allowedProductTabs = $showBankWorkTab ? ['details', 'documents', 'bank'] : ['details', 'documents'];
 if (!in_array($productTab, $allowedProductTabs, true)) {
@@ -106,7 +123,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_product'])) {
 }
 
 // Обработка отправки сообщения и файлов
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['message']) || isset($_FILES['chat_files']))) {
+if ($canUseProductChat && $_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['message']) || isset($_FILES['chat_files']))) {
     $message = trim($_POST['message'] ?? '');
     $hasFiles = !empty($_FILES['chat_files']['name'][0]);
     
@@ -114,10 +131,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['message']) || isset(
     if (!empty($message) || $hasFiles) {
         // Создаем сообщение
         $stmt = $pdo->prepare("
-            INSERT INTO application_product_chats (application_product_id, user_id, message) 
-            VALUES (?, ?, ?)
+            INSERT INTO application_product_chats (application_product_id, thread, user_id, message) 
+            VALUES (?, ?, ?, ?)
         ");
-        $stmt->execute([$productAppId, $userId, $message]);
+        $stmt->execute([$productAppId, $chatThread, $userId, $message]);
         $messageId = $pdo->lastInsertId();
         
         // Обрабатываем файлы
@@ -173,18 +190,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['message']) || isset(
     }
 }
 // Получаем сообщения чата с файлами
+$messages = [];
+$messageFiles = [];
+if ($canUseProductChat) {
 $stmt = $pdo->prepare("
     SELECT c.*, u.first_name, u.last_name, u.role, u.is_submanager
     FROM application_product_chats c
     JOIN users u ON c.user_id = u.id
-    WHERE c.application_product_id = ?
+    WHERE c.application_product_id = ? AND c.thread = ?
     ORDER BY c.created_at ASC
 ");
-$stmt->execute([$productAppId]);
+$stmt->execute([$productAppId, $chatThread]);
 $messages = $stmt->fetchAll();
 
 // Получаем файлы для каждого сообщения
-$messageFiles = [];
 foreach ($messages as $message) {
     $stmt = $pdo->prepare("
         SELECT * FROM application_product_chat_files 
@@ -197,8 +216,11 @@ foreach ($messages as $message) {
         $stmt->fetchAll()
     );
 }
+}
 
 // Помечаем сообщения как прочитанные (для менеджера — только от владельца заявки)
+$totalUnreadMessages = 0;
+if ($canUseProductChat) {
 if (finbuild_is_manager($userRole)) {
     $stmt = $pdo->prepare("
         UPDATE application_product_chats 
@@ -240,6 +262,7 @@ if (finbuild_is_manager($userRole)) {
     $stmtUnreadTotal->execute([$userId, $productApp['application_id']]);
 }
 $totalUnreadMessages = $stmtUnreadTotal->fetch()['total_unread'] ?? 0;
+}
 // --- НАЧАЛО ВСТАВКИ: Логика документов ---
 // Получаем документы продукта
 $stmt = $pdo->prepare("
@@ -591,7 +614,7 @@ function getProductTypeText($productType) {
     <div class="tab-pane fade <?= $productTab === 'details' ? 'show active' : '' ?>" id="details" role="tabpanel">
 <div class="row">
     <!-- Информация о продукте -->
-<div class="col-lg-8">
+<div class="<?= $canUseProductChat ? 'col-lg-8' : 'col-12' ?>">
     <div class="card-header d-flex align-items-center justify-content-between flex-wrap gap-2">
         <h5 class="card-title mb-0">
             <i class="bi bi-box me-2"></i>О продукте
@@ -1000,16 +1023,33 @@ function getProductTypeText($productType) {
     </div>
 </div>
     
+          <?php if ($canUseProductChat): ?>
           <div class="col-lg-4 product-chat-aside">
         <!-- Чат -->
         <div class="card chat-panel" id="chatPanel">
-            <div class="card-header d-flex align-items-center justify-content-between">
+            <div class="card-header d-flex align-items-center justify-content-between flex-wrap gap-2">
                 <h5 class="card-title mb-0">
                     <i class="bi bi-chat-dots me-2"></i>Чат по продукту
                 </h5>
+                <div class="d-flex align-items-center gap-2">
+                    <?php if (finbuild_is_manager($userRole) && count($allowedChatThreads) > 1): ?>
+                        <div class="btn-group btn-group-sm" role="group">
+                            <?php if (in_array('beneficiary', $allowedChatThreads, true)): ?>
+                                <a href="product_details.php?id=<?= (int)$productAppId ?>&tab=details&chat_thread=beneficiary"
+                                   class="btn btn-outline-secondary <?= $chatThread === 'beneficiary' ? 'active' : '' ?>">С заказчиком</a>
+                            <?php endif; ?>
+                            <?php if (in_array('principal', $allowedChatThreads, true)): ?>
+                                <a href="product_details.php?id=<?= (int)$productAppId ?>&tab=details&chat_thread=principal"
+                                   class="btn btn-outline-secondary <?= $chatThread === 'principal' ? 'active' : '' ?>">С клиентом</a>
+                            <?php endif; ?>
+                        </div>
+                    <?php elseif ($chatThread === 'beneficiary'): ?>
+                        <span class="badge bg-warning text-dark">Чат с менеджером</span>
+                    <?php endif; ?>
                 <button type="button" class="btn btn-sm btn-light d-md-none chat-close" id="chatClose">
                     <i class="bi bi-x-lg"></i>
                 </button>
+                </div>
             </div>
             <div class="card-body p-0">
                 <div class="chat-container" style="min-height: 550px; max-height: 700px; height: 70vh; display: flex; flex-direction: column;">
@@ -1060,6 +1100,7 @@ function getProductTypeText($productType) {
 
                     <div class="chat-input" style="padding: 1rem 1.5rem; background: #f8f9fa; border-top: 1px solid #e9ecef; flex-shrink: 0;">
                         <form method="POST" id="chatForm" enctype="multipart/form-data" >
+                            <input type="hidden" name="chat_thread" value="<?= htmlspecialchars($chatThread) ?>">
                             <div class="mb-2">
                                 <textarea name="message" class="form-control chat-textarea" placeholder="Введите сообщение..."></textarea>
                             </div>
@@ -1088,7 +1129,6 @@ function getProductTypeText($productType) {
             </div>
         </div>
     </div>
-</div>
     <!-- Mobile chat FAB + overlay: только на вкладке «Детали» (чат в этой вкладке) -->
     <div class="chat-overlay d-md-none" id="chatOverlay"></div>
     <button class="chat-fab d-md-none" id="chatFab" type="button">
@@ -1098,6 +1138,8 @@ function getProductTypeText($productType) {
             <span class="chat-fab-badge"><?= (int)$totalUnreadMessages ?></span>
         <?php endif; ?>
     </button>
+          <?php endif; ?>
+</div>
     </div> <!-- Закрываем tab-pane #details -->
 
    <div class="tab-pane fade <?= $productTab === 'documents' ? 'show active' : '' ?>" id="documents" role="tabpanel">

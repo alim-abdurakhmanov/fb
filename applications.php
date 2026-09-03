@@ -119,7 +119,7 @@ if ($isAnalystList && $filterStatus === '' && !isset($_GET['status']) && !isset(
  * @param string $filterSearch - текстовый поиск
  * @return array - массив с 'where' (строка условий) и 'params' (массив параметров для bindValue)
  */
-function buildWhereConditions($isManager, $userId, $filterStatus, $filterAssignedTo, $filterSearch, $excludeFailed = false, $submanagerId = null) {
+function buildWhereConditions($isManager, $userId, $filterStatus, $filterAssignedTo, $filterSearch, $excludeFailed = false, $submanagerId = null, $includeAsPrincipal = false) {
     $whereParts = [];
     $params = [];
     
@@ -129,6 +129,10 @@ function buildWhereConditions($isManager, $userId, $filterStatus, $filterAssigne
     } elseif ($submanagerId !== null) {
         $whereParts[] = 'a.assigned_to = :assigned_self';
         $params[':assigned_self'] = (int) $submanagerId;
+    } elseif ($includeAsPrincipal) {
+        $whereParts[] = '(a.created_by = :created_by OR a.principal_user_id = :principal_uid)';
+        $params[':created_by'] = $userId;
+        $params[':principal_uid'] = $userId;
     } else {
         $whereParts[] = 'a.created_by = :created_by';
         $params[':created_by'] = $userId;
@@ -184,7 +188,7 @@ function buildWhereConditions($isManager, $userId, $filterStatus, $filterAssigne
 // ============================================================================
 
 // Получаем WHERE условия с учетом фильтров
-$whereData = buildWhereConditions($seesAllApplications, $userId, $filterStatus, $filterAssignedTo, $filterSearch, $isAnalystList, $isSubmanager ? (int) $userId : null);
+$whereData = buildWhereConditions($seesAllApplications, $userId, $filterStatus, $filterAssignedTo, $filterSearch, $isAnalystList, $isSubmanager ? (int) $userId : null, $userRole === 'client');
 $whereClause = $whereData['where'];
 $whereParams = $whereData['params'];
 
@@ -212,7 +216,7 @@ $offset = ($page - 1) * $perPage;
 // ============================================================================
 // Для статистики используем базовые условия без фильтров по статусу/ответственному/поиску
 // чтобы показывать общее количество заявок по статусам
-$statsWhereData = buildWhereConditions($seesAllApplications, $userId, '', '', '', $isAnalystList, $isSubmanager ? (int) $userId : null);
+$statsWhereData = buildWhereConditions($seesAllApplications, $userId, '', '', '', $isAnalystList, $isSubmanager ? (int) $userId : null, $userRole === 'client');
 $statsWhereClause = $statsWhereData['where'];
 $statsWhereParams = $statsWhereData['params'];
 
@@ -229,7 +233,7 @@ $statsRows = $statsStmt->fetchAll();
 // ============================================================================
 // Для менеджеров непрочитанными считаем только сообщения от владельца заявки (a.created_by)
 $unreadWhereClause = $whereClause;
-if ($isAnalystList || finbuild_is_analyst_role($userRole)) {
+if (!finbuild_can_use_product_chat($currentUser) || $isAnalystList || finbuild_is_analyst_role($userRole)) {
     $unreadJoinCondition = '0=1';
     $unreadWhereParams = $whereParams;
 } elseif (finbuild_is_manager($userRole)) {
@@ -450,7 +454,7 @@ $stats['in_progress'] += $stats['pending_signing'] + $stats['product_request'] +
         </div>
         <div class="col-auto">
             <?php if (!$isAnalystList): ?>
-                <a href="create_application.php" class="btn btn-primary">
+                <a href="<?= $userRole === 'beneficiary' ? 'create_beneficiary_application.php' : 'create_application.php' ?>" class="btn btn-primary">
                     <i class="bi bi-plus-circle me-2"></i>Создать заявку
                 </a>
             <?php endif; ?>
@@ -1159,7 +1163,7 @@ $stats['in_progress'] += $stats['pending_signing'] + $stats['product_request'] +
                         <?php endif; ?>
                     </p>
                     <?php if (!$isAnalystList): ?>
-                    <a href="create_application.php" class="btn btn-primary">
+                    <a href="<?= $userRole === 'beneficiary' ? 'create_beneficiary_application.php' : 'create_application.php' ?>" class="btn btn-primary">
                         <i class="bi bi-plus-circle me-2"></i>Создать первую заявку
                     </a>
                     <?php endif; ?>
@@ -1189,7 +1193,8 @@ $stats['in_progress'] += $stats['pending_signing'] + $stats['product_request'] +
                                         $roleNames = [
                                             'manager' => 'Менеджер',
                                             'partner' => 'Партнер',
-                                            'client' => 'Клиент'
+                                            'client' => 'Клиент',
+                                            'beneficiary' => 'Заказчик'
                                         ];
                                         $roleName = $roleNames[$creatorRole] ?? 'Клиент';
                                         ?>
@@ -1287,7 +1292,8 @@ $stats['in_progress'] += $stats['pending_signing'] + $stats['product_request'] +
             $roleNames = [
                 'manager' => 'Менеджер',
                 'partner' => 'Партнер', 
-                'client' => 'Клиент'
+                'client' => 'Клиент',
+                'beneficiary' => 'Заказчик'
             ];
             $roleName = $roleNames[$creatorRole] ?? 'Клиент';
             ?>

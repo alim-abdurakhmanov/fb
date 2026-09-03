@@ -6,6 +6,12 @@
  *   director     — руководитель
  *   manager      — менеджер (полный доступ, без статистики)
  *   case_manager — менеджер по заявкам (только назначенные)
+ *
+ * Внешние:
+ *   client       — принципал
+ *   partner      — агент
+ *   beneficiary  — заказчик (бенефициар)
+ *   bank         — гарант (ЛК банка)
  */
 declare(strict_types=1);
 
@@ -45,6 +51,12 @@ function finbuild_is_director(?array $user = null): bool
 function finbuild_is_case_manager(?array $user = null): bool
 {
     return finbuild_user_role($user) === 'case_manager';
+}
+
+/** Заказчик (бенефициар). */
+function finbuild_is_beneficiary(?array $user = null): bool
+{
+    return finbuild_user_role($user) === 'beneficiary';
 }
 
 /**
@@ -215,6 +227,16 @@ function finbuild_can_access_application(
         return (bool) $stmt->fetchColumn();
     }
 
+    // Клиент-принципал: своя заявка или привязанная как principal_user_id
+    if ($role === 'client') {
+        $stmt = $pdo->prepare(
+            'SELECT id FROM applications WHERE id = ? AND (created_by = ? OR principal_user_id = ?) LIMIT 1'
+        );
+        $stmt->execute([$applicationId, $userId, $userId]);
+        return (bool) $stmt->fetchColumn();
+    }
+
+    // Заказчик / партнёр: владелец created_by
     $stmt = $pdo->prepare('SELECT created_by FROM applications WHERE id = ? LIMIT 1');
     $stmt->execute([$applicationId]);
     $createdBy = $stmt->fetchColumn();
@@ -283,6 +305,11 @@ function finbuild_role_display_name(?array $user): string
         'manager' => 'Менеджер',
         'case_manager' => 'Менеджер по заявкам',
         'partner' => 'Партнер',
+        'client' => 'Клиент',
+        'beneficiary' => 'Заказчик',
+        'bank' => 'Банк',
+        'analyst' => 'Аналитик',
+    ];
         'client' => 'Клиент',
         'bank' => 'Банк',
         'analyst' => 'Аналитик',

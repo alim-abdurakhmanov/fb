@@ -27,7 +27,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $first_name = trim($_POST['first_name'] ?? '');
     $last_name = trim($_POST['last_name'] ?? '');
     $role = $_POST['role'] ?? 'client';
-    if (!in_array($role, ['client', 'partner', 'analyst', 'case_manager'], true)) {
+    if (!in_array($role, ['client', 'partner', 'analyst', 'case_manager', 'beneficiary'], true)) {
         // Старое значение формы «manager» = менеджер по заявкам
         if ($role === 'manager') {
             $role = 'case_manager';
@@ -54,9 +54,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $inn = '';
     } else {
         if (empty($inn)) {
-            $errors[] = "ИНН обязателен для клиента";
+            $errors[] = $role === 'beneficiary' ? "ИНН обязателен для заказчика" : "ИНН обязателен для клиента";
         } elseif (!preg_match('/^\d{10,12}$/', $inn)) {
             $errors[] = "ИНН должен состоять из 10–12 цифр";
+        }
+        if ($role === 'beneficiary' && $company_name === '') {
+            $errors[] = "Название организации обязательно для заказчика";
         }
     }
 
@@ -306,6 +309,16 @@ https://finbuild.ru
                                                     onchange="toggleCompanyField()">
                                                 <label class="form-check-label h6 mb-0" for="roleClient">
                                                     Клиент
+                                                </label>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-3">
+                                            <div class="form-check">
+                                                <input class="form-check-input" type="radio" name="role" id="roleBeneficiary" value="beneficiary"
+                                                    <?= (($_POST['role'] ?? '') === 'beneficiary') ? 'checked' : '' ?>
+                                                    onchange="toggleCompanyField()">
+                                                <label class="form-check-label h6 mb-0" for="roleBeneficiary">
+                                                    Заказчик
                                                 </label>
                                             </div>
                                         </div>

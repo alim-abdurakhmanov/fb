@@ -143,16 +143,19 @@ if (!function_exists('finbuild_chat_sender_html')) {
             : (($senderRole === 'manager' && $isSub) ? 'case_manager' : $senderRole);
         $name = trim(((string) ($message['first_name'] ?? '')) . ' ' . ((string) ($message['last_name'] ?? '')));
 
-        if (!$isOwn && $viewerMasks && ($senderRole === 'partner' || $senderRole === 'client')) {
+        if (!$isOwn && $viewerMasks && ($senderRole === 'partner' || $senderRole === 'client' || $senderRole === 'beneficiary')) {
             if ($senderRole === 'partner') {
                 return finbuild_chat_role_badge_html('Агент', 'bg-info text-dark');
+            }
+            if ($senderRole === 'beneficiary') {
+                return finbuild_chat_role_badge_html('Заказчик', 'bg-warning text-dark');
             }
             return finbuild_chat_role_badge_html('Клиент', 'bg-secondary');
         }
 
         $isStaffSender = in_array($effectiveStaffRole, ['director', 'manager', 'case_manager', 'analyst'], true)
             || (function_exists('finbuild_is_manager') && finbuild_is_manager($senderRole));
-        $externalViewer = in_array($viewerRole, ['partner', 'client', 'bank'], true);
+        $externalViewer = in_array($viewerRole, ['partner', 'client', 'beneficiary', 'bank'], true);
         $staffFioVisible = !function_exists('finbuild_staff_fio_visible_to_owner_and_bank')
             || finbuild_staff_fio_visible_to_owner_and_bank($senderRole, $isSub);
 
@@ -177,6 +180,8 @@ if (!function_exists('finbuild_chat_sender_html')) {
             $html .= finbuild_chat_role_badge_html($managerLabel, 'bg-primary text-white', true);
         } elseif ($senderRole === 'analyst' || $effectiveStaffRole === 'analyst') {
             $html .= finbuild_chat_role_badge_html('Аналитик', 'bg-primary text-white', true);
+        } elseif ($senderRole === 'beneficiary') {
+            $html .= finbuild_chat_role_badge_html('Заказчик', 'bg-warning text-dark', true);
         }
 
         return $html;

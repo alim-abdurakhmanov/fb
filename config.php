@@ -206,6 +206,10 @@ function getApplicationsWithUnreadMessagesCount(): int {
         return 0;
     }
 
+    if (!finbuild_can_use_product_chat()) {
+        return 0;
+    }
+
     $pdo = getPDO();
     $userId = (int) $_SESSION['user_id'];
     $userRole = $_SESSION['role'] ?? 'client';

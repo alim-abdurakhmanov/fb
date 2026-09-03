@@ -10,7 +10,7 @@ const FINBUILD_ACCESS_SETTING_KEY = 'access_rights';
 /** @return list<string> */
 function finbuild_access_role_keys(): array
 {
-    return ['director', 'manager', 'case_manager', 'analyst', 'partner', 'client', 'bank'];
+    return ['director', 'manager', 'case_manager', 'analyst', 'partner', 'client', 'beneficiary', 'bank'];
 }
 
 /**
@@ -28,11 +28,25 @@ function finbuild_access_permission_defs(): array
             'group' => 'Заявки',
             'hint' => 'Список и карточки всех заявок. Без права — только свои / назначенные.',
             'lock_director' => true,
+            'applicable_roles' => ['director', 'manager', 'case_manager', 'analyst'],
         ],
         'applications.assign' => [
             'label' => 'Назначить ответственного',
             'group' => 'Заявки',
             'hint' => 'Смена поля «Ответственный» в карточке заявки.',
+            'applicable_roles' => ['director', 'manager', 'case_manager', 'analyst'],
+        ],
+        'chat.access' => [
+            'label' => 'Чат по продукту',
+            'group' => 'Заявки',
+            'hint' => 'Плавающий чат на карточке заявки и чат на странице продукта. У партнёра, клиента и заказчика всегда включён; у банка — отдельный чат с менеджером.',
+            'applicable_roles' => ['director', 'manager', 'case_manager', 'analyst'],
+        ],
+        'banks.work' => [
+            'label' => 'Работа с банками',
+            'group' => 'Заявки',
+            'hint' => 'Вкладка «Работа с банком»: отправка пакета в банк и чат с банком. ЛК банка не затрагивается.',
+            'applicable_roles' => ['director', 'manager', 'case_manager', 'analyst'],
         ],
         'structure.view' => [
             'label' => 'Структура — просмотр',
@@ -58,22 +72,26 @@ function finbuild_access_permission_defs(): array
             'label' => 'Пользователи',
             'group' => 'Администрирование',
             'hint' => 'Раздел пользователей: список, создание, карточка.',
+            'applicable_roles' => ['director', 'manager', 'case_manager', 'analyst'],
         ],
         'admin.products' => [
             'label' => 'Продукты',
             'group' => 'Администрирование',
             'hint' => 'Справочник продуктов (БГ / кредиты).',
+            'applicable_roles' => ['director', 'manager', 'case_manager', 'analyst'],
         ],
         'stats.monthly' => [
             'label' => 'Статистика',
             'group' => 'Администрирование',
             'hint' => 'Месячная статистика по заявкам.',
+            'applicable_roles' => ['director', 'manager', 'case_manager', 'analyst'],
         ],
         'access_rights.manage' => [
             'label' => 'Права доступа',
             'group' => 'Администрирование',
             'hint' => 'Эта страница. Нельзя отключить у руководителя.',
             'lock_director' => true,
+            'applicable_roles' => ['director', 'manager', 'case_manager', 'analyst'],
         ],
         'privacy.see_owner_identity' => [
             'label' => 'Контакты владельца и ФИО в чате',
@@ -84,7 +102,7 @@ function finbuild_access_permission_defs(): array
         'privacy.staff_identity_visible_to_owner' => [
             'label' => 'Владелец и банк видят ФИО в чате',
             'group' => 'Конфиденциальность',
-            'hint' => 'Если включено — партнёр, клиент и банк видят ФИО этой роли в чатах. Если выключено — только бейдж («Менеджер», «Руководитель», «Аналитик») без ФИО.',
+            'hint' => 'Если включено — партнёр, клиент, заказчик и банк видят ФИО этой роли в чатах. Если выключено — только бейдж («Менеджер», «Руководитель», «Аналитик») без ФИО.',
             'applicable_roles' => ['director', 'manager', 'case_manager', 'analyst'],
         ],
     ];
@@ -100,6 +118,7 @@ function finbuild_access_default_role_meta(): array
         'analyst' => ['label' => 'Аналитик', 'description' => ''],
         'partner' => ['label' => 'Партнёр', 'description' => ''],
         'client' => ['label' => 'Клиент', 'description' => ''],
+        'beneficiary' => ['label' => 'Заказчик', 'description' => ''],
         'bank' => ['label' => 'Банк', 'description' => ''],
     ];
 }
@@ -124,6 +143,8 @@ function finbuild_access_default_matrix(): array
     foreach (['director', 'manager'] as $r) {
         $matrix['applications.view_all'][$r] = true;
         $matrix['applications.assign'][$r] = true;
+        $matrix['chat.access'][$r] = true;
+        $matrix['banks.work'][$r] = true;
         $matrix['structure.view'][$r] = true;
         $matrix['structure.edit'][$r] = true;
         $matrix['roadmap.view'][$r] = true;
@@ -136,8 +157,10 @@ function finbuild_access_default_matrix(): array
     $matrix['stats.monthly']['director'] = true;
     $matrix['access_rights.manage']['director'] = true;
 
-    // Менеджер по заявкам: структура на просмотр, без дорожной карты и без идентичности владельца;
+    // Менеджер по заявкам: чат, работа с банками и структура на просмотр; без дорожной карты и без идентичности владельца;
     // ФИО в чате для владельца/банка по умолчанию скрыто
+    $matrix['chat.access']['case_manager'] = true;
+    $matrix['banks.work']['case_manager'] = true;
     $matrix['structure.view']['case_manager'] = true;
 
     $matrix['applications.view_all']['analyst'] = true;
@@ -153,7 +176,7 @@ function finbuild_access_default_matrix(): array
 function finbuild_access_defaults(): array
 {
     return [
-        'version' => 3,
+        'version' => 7,
         'roles' => finbuild_access_default_role_meta(),
         'matrix' => finbuild_access_default_matrix(),
     ];
@@ -252,16 +275,31 @@ function finbuild_access_merge_config(array $defaults, array $stored): array
         }
     }
 
-    // Конфиденциальность по сотрудникам: у partner/client/bank в матрице всегда выкл.
-    foreach (['partner', 'client', 'bank'] as $r) {
-        $out['matrix']['privacy.see_owner_identity'][$r] = false;
-        $out['matrix']['privacy.staff_identity_visible_to_owner'][$r] = false;
+    // Права сотрудников: у partner/client/beneficiary/bank в матрице всегда выкл. (в UI — «—»)
+    $staffOnlyPerms = [
+        'applications.view_all',
+        'applications.assign',
+        'chat.access',
+        'banks.work',
+        'admin.users',
+        'admin.products',
+        'stats.monthly',
+        'access_rights.manage',
+        'privacy.see_owner_identity',
+        'privacy.staff_identity_visible_to_owner',
+    ];
+    foreach (['partner', 'client', 'beneficiary', 'bank'] as $r) {
+        foreach ($staffOnlyPerms as $perm) {
+            if (isset($out['matrix'][$perm])) {
+                $out['matrix'][$perm][$r] = false;
+            }
+        }
     }
 
     // Руководитель всегда может управлять правами и видеть все заявки
     $out['matrix']['access_rights.manage']['director'] = true;
     $out['matrix']['applications.view_all']['director'] = true;
-    $out['version'] = max(3, (int) ($out['version'] ?? 3));
+    $out['version'] = max(7, (int) ($out['version'] ?? 7));
     return $out;
 }
 
@@ -287,9 +325,13 @@ function finbuild_can(string $permission, ?array $user = null): bool
     $defs = finbuild_access_permission_defs();
     if (!empty($defs[$permission]['applicable_roles']) && is_array($defs[$permission]['applicable_roles'])) {
         if (!in_array($role, $defs[$permission]['applicable_roles'], true)) {
-            // Для N/A ролей право «не применяется» — маскировку сотрудников не включаем
+            // N/A: право не настраивается для роли
             if ($permission === 'privacy.see_owner_identity') {
-                return true;
+                return true; // маскировку сотрудников не включаем
+            }
+            if ($permission === 'chat.access') {
+                // Партнёр/клиент/заказчик всегда в чате с менеджерами; банк — только банковский чат
+                return $role === 'partner' || $role === 'client' || $role === 'beneficiary';
             }
             return false;
         }
@@ -323,6 +365,18 @@ function finbuild_can(string $permission, ?array $user = null): bool
 function finbuild_should_mask_owner_identity(?array $user = null): bool
 {
     return !finbuild_can('privacy.see_owner_identity', $user);
+}
+
+/** Доступ к чату продукта (плавающий на заявке + страница продукта). */
+function finbuild_can_use_product_chat(?array $user = null): bool
+{
+    return finbuild_can('chat.access', $user);
+}
+
+/** Работа с банками: вкладка отправки/чата у сотрудников (ЛК банка — отдельно). */
+function finbuild_can_work_with_banks(?array $user = null): bool
+{
+    return finbuild_can('banks.work', $user);
 }
 
 /**

@@ -3,6 +3,7 @@ $current_page = 'applications';
 require_once 'config.php';
 require_once __DIR__ . '/includes/application_documents_upload.php';
 require_once __DIR__ . '/includes/upload_access.php';
+require_once __DIR__ . '/includes/beneficiary_intake.php';
 checkAuth();
 
 $pdo = getPDO();
@@ -129,6 +130,14 @@ $isSubmanager = finbuild_should_mask_owner_identity($currentUser)
     || !finbuild_can('applications.assign', $currentUser);
 $showRoadmapTab = finbuild_can('roadmap.view', $currentUser);
 $roadmapCanEdit = finbuild_can('roadmap.edit', $currentUser);
+$canUseProductChat = finbuild_can_use_product_chat($currentUser);
+$chatAllowedThreads = finbuild_chat_allowed_threads_for_viewer($currentUser, $application);
+$chatDefaultThread = finbuild_is_manager($userRole)
+    ? ($chatAllowedThreads[0] ?? 'principal')
+    : (finbuild_chat_thread_for_viewer($currentUser, $application) ?? 'principal');
+if (!in_array($chatDefaultThread, $chatAllowedThreads, true)) {
+    $chatDefaultThread = $chatAllowedThreads[0] ?? 'principal';
+}
 
 // Список менеджеров для поля "Ответственный"
 $managersList = [];
@@ -163,25 +172,35 @@ $stmtProducts = $pdo->prepare("
 $stmtProducts->execute([$applicationId]);
 $products = $stmtProducts->fetchAll();
 
-if (!$isAnalystView) {
+if (!$isAnalystView && $canUseProductChat) {
 // Получаем количество непрочитанных сообщений для каждого продукта
-// Для менеджеров — только сообщения от владельца заявки (created_by)
-$applicationOwnerId = $application['created_by'];
+$applicationOwnerId = (int) $application['created_by'];
+$principalUid = (int) ($application['principal_user_id'] ?? 0);
 foreach ($products as $product) {
     if (finbuild_is_manager($userRole)) {
-        $stmtUnread = $pdo->prepare("
-            SELECT COUNT(*) as unread_count 
-            FROM application_product_chats 
-            WHERE application_product_id = ? AND is_read = 0 AND user_id = ?
-        ");
-        $stmtUnread->execute([$product['id'], $applicationOwnerId]);
+        if ($chatDefaultThread === 'beneficiary') {
+            $stmtUnread = $pdo->prepare("
+                SELECT COUNT(*) as unread_count 
+                FROM application_product_chats 
+                WHERE application_product_id = ? AND thread = 'beneficiary' AND is_read = 0 AND user_id = ?
+            ");
+            $stmtUnread->execute([$product['id'], $applicationOwnerId]);
+        } else {
+            $counterpart = $principalUid > 0 ? $principalUid : $applicationOwnerId;
+            $stmtUnread = $pdo->prepare("
+                SELECT COUNT(*) as unread_count 
+                FROM application_product_chats 
+                WHERE application_product_id = ? AND thread = 'principal' AND is_read = 0 AND user_id = ?
+            ");
+            $stmtUnread->execute([$product['id'], $counterpart]);
+        }
     } else {
         $stmtUnread = $pdo->prepare("
             SELECT COUNT(*) as unread_count 
             FROM application_product_chats 
-            WHERE application_product_id = ? AND is_read = 0 AND user_id != ?
+            WHERE application_product_id = ? AND thread = ? AND is_read = 0 AND user_id != ?
         ");
-        $stmtUnread->execute([$product['id'], $userId]);
+        $stmtUnread->execute([$product['id'], $chatDefaultThread, $userId]);
     }
     $unreadCounts[$product['id']] = $stmtUnread->fetch()['unread_count'];
 }
@@ -1840,6 +1859,131 @@ body.app-chat-open .app-chat-fab { display: none; }
 
         <!-- Содержимое вкладок -->
         <div class="tab-content" id="applicationTabsContent">
+
+            <?php
+            $intakeStatus = (string) ($application['intake_status'] ?? '');
+            $showIntakeReview = finbuild_is_manager($userRole) && $intakeStatus === 'pending_review';
+            $showIntakeInfo = $intakeStatus !== '';
+            ?>
+            <?php if ($showIntakeInfo): ?>
+            <div class="alert <?= $intakeStatus === 'pending_review' ? 'alert-warning' : ($intakeStatus === 'approved' ? 'alert-success' : 'alert-secondary') ?> border-0 shadow-sm mb-4">
+                <div class="d-flex flex-wrap justify-content-between gap-2 align-items-start">
+                    <div>
+                        <strong>Запрос заказчика (бенефициара)</strong>
+                        <?php if ($intakeStatus === 'pending_review'): ?>
+                            — на рассмотрении
+                        <?php elseif ($intakeStatus === 'approved'): ?>
+                            — одобрен
+                        <?php elseif ($intakeStatus === 'rejected'): ?>
+                            — отклонён
+                        <?php endif; ?>
+                        <div class="small mt-1">
+                            Режим суммы:
+                            <?= (($application['amount_mode'] ?? '') === 'open') ? 'без конкретной суммы / лимит' : 'фиксированная' ?>
+                            <?php if (!empty($application['requested_amount'])): ?>
+                                · запрошено: <?= number_format((float) $application['requested_amount'], 0, '.', ' ') ?> ₽
+                            <?php endif; ?>
+                            <?php if (!empty($application['principal_inn']) || !empty($application['principal_company_name'])): ?>
+                                <br>Принципал:
+                                <?= htmlspecialchars(trim((string) ($application['principal_company_name'] ?? ''))) ?>
+                                <?= !empty($application['principal_inn']) ? ' (ИНН ' . htmlspecialchars((string) $application['principal_inn']) . ')' : '' ?>
+                            <?php else: ?>
+                                <br>Принципал ещё не указан
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <?php endif; ?>
+
+            <?php if ($showIntakeReview): ?>
+            <div class="card border-0 shadow-sm mb-4" id="intakeReviewCard">
+                <div class="card-body">
+                    <h5 class="mb-3">Одобрение запроса</h5>
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-4">
+                            <label class="form-label">ИНН принципала *</label>
+                            <input type="text" class="form-control" id="intakePrincipalInn" maxlength="12"
+                                   value="<?= htmlspecialchars((string) ($application['principal_inn'] ?? '')) ?>">
+                        </div>
+                        <div class="col-md-8">
+                            <label class="form-label">Компания принципала *</label>
+                            <input type="text" class="form-control" id="intakePrincipalCompany"
+                                   value="<?= htmlspecialchars((string) ($application['principal_company_name'] ?? '')) ?>">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">E-mail нового клиента *</label>
+                            <input type="email" class="form-control" id="intakeClientEmail" placeholder="Если клиента ещё нет в системе">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Телефон клиента</label>
+                            <input type="text" class="form-control" id="intakeClientPhone">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Одобряемая сумма / лимит, ₽</label>
+                            <input type="text" class="form-control" id="intakeApproveValue"
+                                   value="<?= htmlspecialchars((string) ($application['requested_amount'] ?? $application['amount'] ?? '')) ?>">
+                        </div>
+                    </div>
+                    <div class="d-flex flex-wrap gap-2">
+                        <button type="button" class="btn btn-success btn-sm" id="intakeApproveAmountBtn">Одобрить сумму</button>
+                        <button type="button" class="btn btn-primary btn-sm" id="intakeApproveLimitBtn">Установить лимит</button>
+                        <button type="button" class="btn btn-outline-danger btn-sm" id="intakeRejectBtn">Отклонить</button>
+                    </div>
+                    <div class="small text-muted mt-2" id="intakeReviewStatus"></div>
+                </div>
+            </div>
+            <script>
+            (function () {
+                const appId = <?= (int) $applicationId ?>;
+                async function postIntake(action) {
+                    const statusEl = document.getElementById('intakeReviewStatus');
+                    const payload = {
+                        application_id: appId,
+                        action: action,
+                        principal_inn: (document.getElementById('intakePrincipalInn') || {}).value || '',
+                        principal_company_name: (document.getElementById('intakePrincipalCompany') || {}).value || '',
+                        client_email: (document.getElementById('intakeClientEmail') || {}).value || '',
+                        client_phone: (document.getElementById('intakeClientPhone') || {}).value || '',
+                    };
+                    const val = parseFloat(String((document.getElementById('intakeApproveValue') || {}).value || '').replace(/\s/g, '').replace(',', '.'));
+                    if (action === 'approve_amount') payload.approved_amount = val;
+                    if (action === 'approve_limit') payload.approved_limit = val;
+                    if (statusEl) statusEl.textContent = 'Сохранение…';
+                    try {
+                        const res = await fetch('api_intake_review.php', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            credentials: 'same-origin',
+                            body: JSON.stringify(payload)
+                        });
+                        const data = await res.json();
+                        if (!data.success) {
+                            if (statusEl) statusEl.textContent = data.error || 'Ошибка';
+                            return;
+                        }
+                        let msg = 'Сохранено.';
+                        if (data.created_client && data.plain_password) {
+                            msg += ' Создан клиент, пароль: ' + data.plain_password;
+                        }
+                        if (statusEl) statusEl.textContent = msg;
+                        setTimeout(function () { window.location.reload(); }, 800);
+                    } catch (e) {
+                        if (statusEl) statusEl.textContent = 'Сеть или сервер недоступны';
+                    }
+                }
+                const a = document.getElementById('intakeApproveAmountBtn');
+                const l = document.getElementById('intakeApproveLimitBtn');
+                const r = document.getElementById('intakeRejectBtn');
+                if (a) a.addEventListener('click', function () { postIntake('approve_amount'); });
+                if (l) l.addEventListener('click', function () { postIntake('approve_limit'); });
+                if (r) r.addEventListener('click', function () {
+                    if (!confirm('Отклонить запрос заказчика?')) return;
+                    postIntake('reject');
+                });
+            })();
+            </script>
+            <?php endif; ?>
             
             <!-- Вкладка информации -->
             <div class="tab-pane fade show active" id="info" role="tabpanel">
@@ -2994,7 +3138,7 @@ body.app-chat-open .app-chat-fab { display: none; }
 <?php endif; ?>
 
 <!-- Chat widget (drawer) -->
-<?php if (!$isAnalystView): ?>
+<?php if (!$isAnalystView && $canUseProductChat): ?>
 <div class="app-chat-overlay" id="appChatOverlay"></div>
 
 <div class="app-chat-drawer" id="appChatDrawer" aria-hidden="true">
@@ -3002,9 +3146,21 @@ body.app-chat-open .app-chat-fab { display: none; }
         <h6 class="app-chat-drawer-title">
             <i class="bi bi-chat-dots"></i> Чаты
         </h6>
+        <div class="d-flex align-items-center gap-2">
+            <?php if (finbuild_is_manager($userRole) && count($chatAllowedThreads) > 1): ?>
+                <div class="btn-group btn-group-sm" role="group" id="appChatThreadSwitch">
+                    <?php if (in_array('beneficiary', $chatAllowedThreads, true)): ?>
+                        <button type="button" class="btn btn-outline-secondary <?= $chatDefaultThread === 'beneficiary' ? 'active' : '' ?>" data-thread="beneficiary">Заказчик</button>
+                    <?php endif; ?>
+                    <?php if (in_array('principal', $chatAllowedThreads, true)): ?>
+                        <button type="button" class="btn btn-outline-secondary <?= $chatDefaultThread === 'principal' ? 'active' : '' ?>" data-thread="principal">Клиент</button>
+                    <?php endif; ?>
+                </div>
+            <?php endif; ?>
         <button type="button" class="btn btn-sm btn-light" id="appChatClose" title="Закрыть">
             <i class="bi bi-x-lg"></i>
         </button>
+        </div>
     </div>
 
     <div class="app-chat-products-tabs" id="appChatProductTabs">
@@ -3071,7 +3227,7 @@ body.app-chat-open .app-chat-fab { display: none; }
 </div>
 <?php endif; ?>
 
-<?php if (!$isAnalystView): ?>
+<?php if (!$isAnalystView && $canUseProductChat): ?>
 <button class="app-chat-fab" id="appChatFab" type="button">
     <i class="bi bi-chat-dots"></i>
     <span class="app-chat-fab-label">Чаты</span>
@@ -3330,11 +3486,36 @@ document.addEventListener('DOMContentLoaded', function() {
     const selectedFiles = document.getElementById('appChatSelectedFiles');
     const sendBtn = document.getElementById('appChatSendBtn');
     const chatInput = document.getElementById('appChatInput');
+    let activeThread = <?= json_encode($chatDefaultThread, JSON_UNESCAPED_UNICODE) ?>;
+
+    if (!fab || !drawer) {
+        return;
+    }
 
     let activeProductId = null;
     let pollTimer = null;
     let isFetching = false;
     let markReadTimer = null;
+
+    function applyThreadParam(url) {
+        url.searchParams.set('thread', activeThread || 'principal');
+        return url;
+    }
+
+    const threadSwitch = document.getElementById('appChatThreadSwitch');
+    if (threadSwitch) {
+        threadSwitch.addEventListener('click', function (e) {
+            const btn = e.target.closest('[data-thread]');
+            if (!btn) return;
+            activeThread = btn.getAttribute('data-thread') || 'principal';
+            threadSwitch.querySelectorAll('[data-thread]').forEach(function (b) {
+                b.classList.toggle('active', b === btn);
+            });
+            if (activeProductId) {
+                loadChat(activeProductId, { scroll: 'bottom' });
+            }
+        });
+    }
 
     function scheduleMarkReadDebounced() {
         if (!isOpen() || !activeProductId) return;
@@ -3347,6 +3528,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 const url = new URL('api_product_chat.php', window.location.href);
                 url.searchParams.set('action', 'mark_read');
                 url.searchParams.set('application_product_id', String(activeProductId));
+                applyThreadParam(url);
                 const r = await fetch(url.toString(), { credentials: 'same-origin' });
                 const data = await r.json();
                 if (data && data.success) {
@@ -3446,6 +3628,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const url = new URL('api_product_chat.php', window.location.href);
         url.searchParams.set('action', action);
         url.searchParams.set('application_product_id', String(pid));
+        applyThreadParam(url);
 
         const r = await fetch(url.toString(), { credentials: 'same-origin' });
         return await r.json();
@@ -3479,6 +3662,7 @@ document.addEventListener('DOMContentLoaded', function() {
             url.searchParams.set('action', 'get');
             url.searchParams.set('application_product_id', String(activeProductId));
             url.searchParams.set('mark_read', scrollMode === 'bottom' ? '1' : '0');
+            applyThreadParam(url);
 
             const r = await fetch(url.toString(), { credentials: 'same-origin' });
             const data = await r.json();
@@ -3524,6 +3708,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const url = new URL('api_product_chat.php', window.location.href);
         url.searchParams.set('action', 'counts');
         url.searchParams.set('application_product_id', String(pid));
+        applyThreadParam(url);
         const r = await fetch(url.toString(), { credentials: 'same-origin' });
         const data = await r.json();
         if (!data || !data.success) return;
@@ -3631,6 +3816,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 const fd = new FormData(form);
                 fd.set('action', 'send');
                 fd.set('application_product_id', String(activeProductId));
+                fd.set('thread', activeThread || 'principal');
 
                 const r = await fetch('api_product_chat.php', {
                     method: 'POST',

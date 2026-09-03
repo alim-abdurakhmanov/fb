@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/includes/upload_access.php';
+require_once __DIR__ . '/includes/beneficiary_intake.php';
 checkAuth();
 
 header('Content-Type: application/json; charset=utf-8');
@@ -32,11 +33,12 @@ if ($productId <= 0) {
     finbuild_chat_fail(400, 'Не указан product id');
 }
 
-// Проверка доступа + получение связанных данных.
 $stmt = $pdo->prepare(
     "SELECT ap.id AS application_product_id,
             ap.application_id,
-            a.created_by AS application_owner_id
+            a.created_by AS application_owner_id,
+            a.principal_user_id,
+            a.intake_status
      FROM application_products ap
      INNER JOIN applications a ON a.id = ap.application_id
      WHERE ap.id = ?
@@ -50,6 +52,7 @@ if (!$meta) {
 
 $applicationId = (int)$meta['application_id'];
 $applicationOwnerId = (int)$meta['application_owner_id'];
+$principalUserId = (int)($meta['principal_user_id'] ?? 0);
 $currentUser = getCurrentUser() ?: ['role' => $userRole, 'id' => $userId];
 $userIsAnalystFlag = finbuild_user_is_analyst_flag($currentUser);
 
@@ -57,9 +60,31 @@ if (!finbuild_can_access_application($pdo, $applicationId, $userRole, $userId, $
     finbuild_chat_fail(403, 'Нет доступа');
 }
 
-// Подсчет непрочитанных по всем продуктам заявки (как на странице заявки).
-function finbuild_chat_compute_unread_counts(PDO $pdo, int $applicationId, string $userRole, int $userId, int $applicationOwnerId): array
-{
+if (!finbuild_can_use_product_chat($currentUser)) {
+    finbuild_chat_fail(403, 'Нет доступа к чату');
+}
+
+$allowedThreads = finbuild_chat_allowed_threads_for_viewer($currentUser, $meta);
+$requestedThread = finbuild_chat_normalize_thread((string)($_POST['thread'] ?? $_GET['thread'] ?? ''));
+if (finbuild_is_manager($userRole)) {
+    $activeThread = in_array($requestedThread, $allowedThreads, true) ? $requestedThread : $allowedThreads[0];
+} else {
+    $forced = finbuild_chat_thread_for_viewer($currentUser, $meta);
+    $activeThread = $forced && in_array($forced, $allowedThreads, true) ? $forced : $allowedThreads[0];
+}
+
+/**
+ * @return array{0: array<int,int>, 1: int}
+ */
+function finbuild_chat_compute_unread_counts(
+    PDO $pdo,
+    int $applicationId,
+    string $userRole,
+    int $userId,
+    int $applicationOwnerId,
+    int $principalUserId,
+    string $activeThread
+): array {
     $stmtProducts = $pdo->prepare("SELECT id FROM application_products WHERE application_id = ?");
     $stmtProducts->execute([$applicationId]);
     $productIds = array_map(static fn($r) => (int)$r['id'], $stmtProducts->fetchAll(PDO::FETCH_ASSOC));
@@ -68,19 +93,27 @@ function finbuild_chat_compute_unread_counts(PDO $pdo, int $applicationId, strin
     $totalUnread = 0;
     foreach ($productIds as $pid) {
         if (finbuild_is_manager($userRole)) {
-            $stmtUnread = $pdo->prepare(
-                "SELECT COUNT(*) as unread_count
-                 FROM application_product_chats
-                 WHERE application_product_id = ? AND is_read = 0 AND user_id = ?"
-            );
-            $stmtUnread->execute([$pid, $applicationOwnerId]);
+            // Непрочитанные от внешних участников в активном thread
+            if ($activeThread === 'beneficiary') {
+                $stmtUnread = $pdo->prepare(
+                    "SELECT COUNT(*) FROM application_product_chats
+                     WHERE application_product_id = ? AND thread = 'beneficiary' AND is_read = 0 AND user_id = ?"
+                );
+                $stmtUnread->execute([$pid, $applicationOwnerId]);
+            } else {
+                $counterpart = $principalUserId > 0 ? $principalUserId : $applicationOwnerId;
+                $stmtUnread = $pdo->prepare(
+                    "SELECT COUNT(*) FROM application_product_chats
+                     WHERE application_product_id = ? AND thread = 'principal' AND is_read = 0 AND user_id = ?"
+                );
+                $stmtUnread->execute([$pid, $counterpart]);
+            }
         } else {
             $stmtUnread = $pdo->prepare(
-                "SELECT COUNT(*) as unread_count
-                 FROM application_product_chats
-                 WHERE application_product_id = ? AND is_read = 0 AND user_id != ?"
+                "SELECT COUNT(*) FROM application_product_chats
+                 WHERE application_product_id = ? AND thread = ? AND is_read = 0 AND user_id != ?"
             );
-            $stmtUnread->execute([$pid, $userId]);
+            $stmtUnread->execute([$pid, $activeThread, $userId]);
         }
         $cnt = (int)($stmtUnread->fetchColumn() ?? 0);
         $unreadCounts[$pid] = $cnt;
@@ -89,42 +122,71 @@ function finbuild_chat_compute_unread_counts(PDO $pdo, int $applicationId, strin
     return [$unreadCounts, $totalUnread];
 }
 
-// Быстрый endpoint только для бейджей (для пуллинга, когда drawer закрыт).
-if ($action === 'counts') {
-    [$unreadCounts, $totalUnread] = finbuild_chat_compute_unread_counts($pdo, $applicationId, $userRole, $userId, $applicationOwnerId);
-    finbuild_chat_ok([
-        'application_id' => $applicationId,
-        'unread_counts' => $unreadCounts,
-        'total_unread' => $totalUnread,
-    ]);
-}
-
-// Пометка прочитанными без перезагрузки ленты (когда пользователь доскроллил до низа).
-if ($action === 'mark_read') {
+function finbuild_chat_mark_thread_read(
+    PDO $pdo,
+    int $productId,
+    string $userRole,
+    int $userId,
+    int $applicationOwnerId,
+    int $principalUserId,
+    string $activeThread
+): void {
     if (finbuild_is_manager($userRole)) {
-        $stmtRead = $pdo->prepare(
-            "UPDATE application_product_chats
-             SET is_read = 1
-             WHERE application_product_id = ? AND user_id = ? AND is_read = 0"
-        );
-        $stmtRead->execute([$productId, $applicationOwnerId]);
+        if ($activeThread === 'beneficiary') {
+            $stmtRead = $pdo->prepare(
+                "UPDATE application_product_chats
+                 SET is_read = 1
+                 WHERE application_product_id = ? AND thread = 'beneficiary' AND user_id = ? AND is_read = 0"
+            );
+            $stmtRead->execute([$productId, $applicationOwnerId]);
+        } else {
+            $counterpart = $principalUserId > 0 ? $principalUserId : $applicationOwnerId;
+            $stmtRead = $pdo->prepare(
+                "UPDATE application_product_chats
+                 SET is_read = 1
+                 WHERE application_product_id = ? AND thread = 'principal' AND user_id = ? AND is_read = 0"
+            );
+            $stmtRead->execute([$productId, $counterpart]);
+        }
     } else {
         $stmtRead = $pdo->prepare(
             "UPDATE application_product_chats
              SET is_read = 1
-             WHERE application_product_id = ? AND user_id != ? AND is_read = 0"
+             WHERE application_product_id = ? AND thread = ? AND user_id != ? AND is_read = 0"
         );
-        $stmtRead->execute([$productId, $userId]);
+        $stmtRead->execute([$productId, $activeThread, $userId]);
     }
-    [$unreadCounts, $totalUnread] = finbuild_chat_compute_unread_counts($pdo, $applicationId, $userRole, $userId, $applicationOwnerId);
+}
+
+if ($action === 'counts') {
+    [$unreadCounts, $totalUnread] = finbuild_chat_compute_unread_counts(
+        $pdo, $applicationId, $userRole, $userId, $applicationOwnerId, $principalUserId, $activeThread
+    );
     finbuild_chat_ok([
         'application_id' => $applicationId,
+        'thread' => $activeThread,
+        'allowed_threads' => $allowedThreads,
         'unread_counts' => $unreadCounts,
         'total_unread' => $totalUnread,
     ]);
 }
 
-// Отправка сообщения/файлов.
+if ($action === 'mark_read') {
+    finbuild_chat_mark_thread_read(
+        $pdo, $productId, $userRole, $userId, $applicationOwnerId, $principalUserId, $activeThread
+    );
+    [$unreadCounts, $totalUnread] = finbuild_chat_compute_unread_counts(
+        $pdo, $applicationId, $userRole, $userId, $applicationOwnerId, $principalUserId, $activeThread
+    );
+    finbuild_chat_ok([
+        'application_id' => $applicationId,
+        'thread' => $activeThread,
+        'allowed_threads' => $allowedThreads,
+        'unread_counts' => $unreadCounts,
+        'total_unread' => $totalUnread,
+    ]);
+}
+
 if ($action === 'send') {
     $message = trim((string)($_POST['message'] ?? ''));
     $hasFiles = !empty($_FILES['chat_files']['name'][0]);
@@ -136,10 +198,10 @@ if ($action === 'send') {
     $pdo->beginTransaction();
     try {
         $stmtIns = $pdo->prepare(
-            "INSERT INTO application_product_chats (application_product_id, user_id, message)
-             VALUES (?, ?, ?)"
+            "INSERT INTO application_product_chats (application_product_id, thread, user_id, message)
+             VALUES (?, ?, ?, ?)"
         );
-        $stmtIns->execute([$productId, $userId, $message]);
+        $stmtIns->execute([$productId, $activeThread, $userId, $message]);
         $messageId = (int)$pdo->lastInsertId();
 
         if ($hasFiles) {
@@ -196,15 +258,14 @@ if ($action === 'send') {
     notify_product_chat_message($pdo, $productId, $userId, $message, $hasFiles);
 }
 
-// Получение сообщений + файлов.
 $stmtMsg = $pdo->prepare(
     "SELECT c.*, u.first_name, u.last_name, u.role, u.is_submanager
      FROM application_product_chats c
      INNER JOIN users u ON u.id = c.user_id
-     WHERE c.application_product_id = ?
+     WHERE c.application_product_id = ? AND c.thread = ?
      ORDER BY c.created_at ASC"
 );
-$stmtMsg->execute([$productId]);
+$stmtMsg->execute([$productId, $activeThread]);
 $messages = $stmtMsg->fetchAll(PDO::FETCH_ASSOC);
 
 $messageFiles = [];
@@ -224,8 +285,6 @@ if (!empty($messages)) {
     }
 }
 
-// Пометка прочитанными: после send — всегда; иначе (в т.ч. action=get) — по mark_read (по умолчанию 1).
-// При опросе с mark_read=0 не обнуляем бейджи, пока пользователь не увидел конец ленты.
 $shouldMarkRead = false;
 if ($action === 'send') {
     $shouldMarkRead = true;
@@ -235,31 +294,22 @@ if ($action === 'send') {
 }
 
 if ($shouldMarkRead) {
-    if (finbuild_is_manager($userRole)) {
-        $stmtRead = $pdo->prepare(
-            "UPDATE application_product_chats
-             SET is_read = 1
-             WHERE application_product_id = ? AND user_id = ? AND is_read = 0"
-        );
-        $stmtRead->execute([$productId, $applicationOwnerId]);
-    } else {
-        $stmtRead = $pdo->prepare(
-            "UPDATE application_product_chats
-             SET is_read = 1
-             WHERE application_product_id = ? AND user_id != ? AND is_read = 0"
-        );
-        $stmtRead->execute([$productId, $userId]);
-    }
+    finbuild_chat_mark_thread_read(
+        $pdo, $productId, $userRole, $userId, $applicationOwnerId, $principalUserId, $activeThread
+    );
 }
 
-[$unreadCounts, $totalUnread] = finbuild_chat_compute_unread_counts($pdo, $applicationId, $userRole, $userId, $applicationOwnerId);
+[$unreadCounts, $totalUnread] = finbuild_chat_compute_unread_counts(
+    $pdo, $applicationId, $userRole, $userId, $applicationOwnerId, $principalUserId, $activeThread
+);
 $messagesHtml = finbuild_chat_render_messages_html($messages, $messageFiles, $userId, getCurrentUser());
 
 finbuild_chat_ok([
     'application_id' => $applicationId,
     'application_product_id' => $productId,
+    'thread' => $activeThread,
+    'allowed_threads' => $allowedThreads,
     'messages_html' => $messagesHtml,
     'unread_counts' => $unreadCounts,
     'total_unread' => $totalUnread,
 ]);
-

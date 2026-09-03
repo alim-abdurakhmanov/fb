@@ -19,7 +19,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $phone = trim($_POST['phone'] ?? '');
     $company_name = trim($_POST['company_name'] ?? ''); 
     $role = $_POST['role'] ?? 'client';
-    if (!in_array($role, ['client', 'partner'], true)) {
+    if (!in_array($role, ['client', 'partner', 'beneficiary'], true)) {
         $role = 'client';
     }
 
@@ -34,9 +34,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $inn = '';
     } else {
         if (empty($inn)) {
-            $errors[] = "ИНН обязателен для клиента";
+            $errors[] = $role === 'beneficiary' ? "ИНН обязателен для заказчика" : "ИНН обязателен для клиента";
         } elseif (!preg_match('/^\d{10,12}$/', $inn)) {
             $errors[] = "ИНН должен состоять из 10–12 цифр";
+        }
+        if ($role === 'beneficiary' && $company_name === '') {
+            $errors[] = "Название организации обязательно для заказчика";
         }
     }
 
@@ -307,6 +310,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <div class="role-option active" onclick="setRole('client', this)">
                         <i class="bi bi-person me-1"></i> Клиент
                     </div>
+                    <div class="role-option" onclick="setRole('beneficiary', this)">
+                        <i class="bi bi-building me-1"></i> Заказчик
+                    </div>
                     <div class="role-option" onclick="setRole('partner', this)">
                         <i class="bi bi-briefcase me-1"></i> Партнер/Агент
                     </div>
@@ -399,23 +405,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         // Меняем текст подсказки
         const descBlock = document.getElementById('roleDescription');
-        if (role === 'client') {
-            descBlock.innerHTML = '<i class="bi bi-info-circle me-1"></i> Вы сможете создавать свои заявки на банковские гарантии, видеть их статусы и получать обратную связь от банков.';
-            const innWrapper = document.getElementById('regInnWrapper');
+        const innWrapper = document.getElementById('regInnWrapper');
+        const innInput = document.getElementById('regInn');
+        if (role === 'partner') {
+            descBlock.innerHTML = '<i class="bi bi-briefcase me-1"></i> Вы сможете создавать заявки на банковские гарантии от своих клиентов, отслеживать их статусы и обратную связь от банков.';
+            if (innWrapper) innWrapper.style.display = 'none';
+            if (innInput) {
+                innInput.value = '';
+                innInput.removeAttribute('required');
+            }
+        } else if (role === 'beneficiary') {
+            descBlock.innerHTML = '<i class="bi bi-building me-1"></i> Вы заказчик (бенефициар): размещаете запрос на БГ в свою пользу; после одобрения принципал получит доступ к заявке.';
             if (innWrapper) innWrapper.style.display = 'block';
-            const innInput = document.getElementById('regInn');
             if (innInput) innInput.setAttribute('required', 'required');
         } else {
-            descBlock.innerHTML = '<i class="bi bi-briefcase me-1"></i> Вы сможете создавать заявки на банковские гарантии от своих клиентов, отслеживать их статусы и обратную связь от банков.';
-            const innWrapper = document.getElementById('regInnWrapper');
-            if (innWrapper) {
-                innWrapper.style.display = 'none';
-                const innInput = document.getElementById('regInn');
-                if (innInput) {
-                    innInput.value = '';
-                    innInput.removeAttribute('required');
-                }
-            }
+            descBlock.innerHTML = '<i class="bi bi-info-circle me-1"></i> Вы сможете создавать свои заявки на банковские гарантии, видеть их статусы и получать обратную связь от банков.';
+            if (innWrapper) innWrapper.style.display = 'block';
+            if (innInput) innInput.setAttribute('required', 'required');
         }
     }
 

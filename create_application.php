@@ -7,6 +7,10 @@ checkAuth();
 $pdo = getPDO();
 $current_user_id = $_SESSION['user_id'];
 $user_role = $_SESSION['role'] ?? 'client';
+if ($user_role === 'beneficiary') {
+    header('Location: create_beneficiary_application.php');
+    exit;
+}
 $isSubmanager = finbuild_is_case_manager(); // Без выбора клиента и ответственного — он сам
 $usersList = [];
 $managersList = [];
@@ -15,7 +19,7 @@ if (finbuild_is_manager($user_role)) {
     $stmtUsers = $pdo->prepare("
         SELECT id, first_name, last_name, company_name, inn, role, phone 
         FROM users 
-        WHERE role IN ('client', 'partner') 
+        WHERE role IN ('client', 'partner', 'beneficiary') 
         ORDER BY company_name ASC, last_name ASC
     ");
     $stmtUsers->execute();

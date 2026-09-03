@@ -241,6 +241,9 @@ function finbuild_upload_can_access(PDO $pdo, string $kind, int $id, array $user
             return finbuild_upload_can_access_bank_case($pdo, $caseId, $user);
 
         case 'chat':
+            if (!finbuild_can_use_product_chat($user)) {
+                return false;
+            }
             $stmt = $pdo->prepare(
                 'SELECT ap.application_id, a.created_by
                  FROM application_product_chat_files f

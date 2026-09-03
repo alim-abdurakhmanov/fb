@@ -66,7 +66,7 @@ $dashboardAppsWithUnread = [];
 $dashboardNewForManager = [];
 $dashboardRecentActive = [];
 
-if (finbuild_has_full_manager_access()) {
+if (finbuild_can_use_product_chat($currentUser) && finbuild_has_full_manager_access()) {
     $stmt = $pdo->query("
         SELECT a.id, a.company_name, a.inn, a.status, MAX(apc.created_at) AS activity_at
         FROM applications a
@@ -78,7 +78,7 @@ if (finbuild_has_full_manager_access()) {
         LIMIT 5
     ");
     $dashboardAppsWithUnread = $stmt ? $stmt->fetchAll(PDO::FETCH_ASSOC) : [];
-} elseif ($isSubmanager) {
+} elseif (finbuild_can_use_product_chat($currentUser) && $isSubmanager) {
     $stmt = $pdo->prepare("
         SELECT a.id, a.company_name, a.inn, a.status, MAX(apc.created_at) AS activity_at
         FROM applications a
@@ -91,7 +91,7 @@ if (finbuild_has_full_manager_access()) {
     ");
     $stmt->execute([$userId]);
     $dashboardAppsWithUnread = $stmt->fetchAll(PDO::FETCH_ASSOC);
-} else {
+} elseif (finbuild_can_use_product_chat($currentUser)) {
     $stmt = $pdo->prepare("
         SELECT a.id, a.company_name, a.inn, a.status, MAX(apc.created_at) AS activity_at
         FROM applications a
