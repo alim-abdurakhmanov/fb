@@ -22,8 +22,8 @@ if ($hour >= 5 && $hour < 11) {
 }
 
 // --- СТАТИСТИКА ---
-$isSubmanager = finbuild_is_submanager(); // Менеджер: показатели только по его заявкам (assigned_to)
-if ($userRole === 'manager' && !$isSubmanager) {
+$isSubmanager = finbuild_is_case_manager(); // Показатели только по его заявкам (assigned_to)
+if (finbuild_has_full_manager_access()) {
     $stmt = $pdo->query("SELECT COUNT(*) as total FROM applications");
     $totalApplications = $stmt->fetch()['total'];
     $stmt = $pdo->query("SELECT COUNT(*) as total FROM applications WHERE status = 'new'");
@@ -66,7 +66,7 @@ $dashboardAppsWithUnread = [];
 $dashboardNewForManager = [];
 $dashboardRecentActive = [];
 
-if ($userRole === 'manager' && !$isSubmanager) {
+if (finbuild_has_full_manager_access()) {
     $stmt = $pdo->query("
         SELECT a.id, a.company_name, a.inn, a.status, MAX(apc.created_at) AS activity_at
         FROM applications a
@@ -106,7 +106,7 @@ if ($userRole === 'manager' && !$isSubmanager) {
     $dashboardAppsWithUnread = $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
-if ($userRole === 'manager' && !$isSubmanager) {
+if (finbuild_has_full_manager_access()) {
     $excludeUnreadIds = array_map('intval', array_column($dashboardAppsWithUnread, 'id'));
     if ($excludeUnreadIds === []) {
         $stmt = $pdo->query("
@@ -160,7 +160,7 @@ $dashboardAttentionIds = array_unique(array_merge(
     array_map('intval', array_column($dashboardNewForManager, 'id'))
 ));
 
-if ($userRole === 'manager' && !$isSubmanager) {
+if (finbuild_has_full_manager_access()) {
     if ($dashboardAttentionIds === []) {
         $stmt = $pdo->query("
             SELECT a.id, a.company_name, a.inn, a.status, a.updated_at AS activity_at
@@ -746,7 +746,7 @@ $newsChunks = array_chunk($newsItems, 3);
                         </p>
                         
                         <div class="d-flex gap-3 hero-buttons">
-                            <?php if ($userRole === 'manager'): ?>
+                            <?php if (finbuild_is_manager($userRole)): ?>
                                 <button type="button" class="btn btn-light text-primary fw-bold px-4 py-2" onclick="location.href='applications.php'">
                                     <i class="bi bi-list-check me-2"></i> Просмотреть заявки
                                 </button>
@@ -843,8 +843,8 @@ $newsChunks = array_chunk($newsItems, 3);
                     <?php if (!$dashboardHasAttention): ?>
                         <div class="dashboard-op-empty">
                             <div class="dashboard-op-empty-icon"><i class="bi bi-check2-circle"></i></div>
-                            <p class="text-muted small mb-3 mb-lg-2">Нет заявок с непрочитанными сообщениями<?php if ($userRole === 'manager'): ?> и новых заявок в очереди<?php endif; ?>.</p>
-                            <?php if ($userRole === 'manager'): ?>
+                            <p class="text-muted small mb-3 mb-lg-2">Нет заявок с непрочитанными сообщениями<?php if (finbuild_is_manager($userRole)): ?> и новых заявок в очереди<?php endif; ?>.</p>
+                            <?php if (finbuild_is_manager($userRole)): ?>
                                 <a href="applications.php" class="btn btn-primary btn-sm">Открыть заявки</a>
                             <?php else: ?>
                                 <div class="d-flex flex-column flex-sm-row gap-2 justify-content-center">

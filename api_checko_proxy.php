@@ -121,7 +121,7 @@ if (!isset($_SESSION['user_id'])) {
 
 // POST: записать данные контракта в заявку (карточка заявки, менеджер)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['application_id'])) {
-    if (($_SESSION['role'] ?? '') !== 'manager') {
+    if (!finbuild_is_manager((string) ($_SESSION['role'] ?? ''))) {
         echo json_encode(['success' => false, 'error' => 'Доступ запрещен']);
         exit;
     }

@@ -43,7 +43,7 @@ try {
     $userId = $_SESSION['user_id'];
     
     // Менеджеры могут удалять любые документы, клиенты - только свои
-    $canDelete = ($userRole === 'manager') || ($document['uploaded_by'] == $userId);
+    $canDelete = (finbuild_is_manager($userRole)) || ($document['uploaded_by'] == $userId);
     
     if (!$canDelete) {
         echo json_encode(['success' => false, 'error' => 'Недостаточно прав для удаления документа']);

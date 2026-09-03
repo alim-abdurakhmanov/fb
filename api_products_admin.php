@@ -8,7 +8,7 @@ require_once __DIR__ . '/config.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
-if (!isset($_SESSION['user_id']) || ($_SESSION['role'] ?? '') !== 'manager' || finbuild_is_submanager()) {
+if (!isset($_SESSION['user_id']) || !finbuild_can('admin.products')) {
     echo json_encode(['success' => false, 'error' => 'Доступ запрещён'], JSON_UNESCAPED_UNICODE);
     exit;
 }

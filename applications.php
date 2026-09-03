@@ -9,8 +9,14 @@ $userId = $_SESSION['user_id'];
 $userIsAnalystFlag = finbuild_user_is_analyst_flag($currentUser);
 $isAnalystScope = finbuild_is_applications_analyst_scope($currentUser);
 $isPureAnalyst = finbuild_is_pure_analyst($currentUser);
-$isSubmanager = finbuild_is_submanager($currentUser); // Менеджер видит только заявки, где он ответственный
-$seesAllApplications = (finbuild_is_manager($userRole) && !$isSubmanager) || $isAnalystScope;
+$seesAllApplications = finbuild_can('applications.view_all', $currentUser) || $isAnalystScope;
+$isCaseManager = finbuild_is_case_manager($currentUser) || (
+    finbuild_is_manager($userRole) && !finbuild_can('applications.view_all', $currentUser)
+);
+$isSubmanager = $isCaseManager; // совместимость + маскировка/ограниченный список
+if (!$isSubmanager && finbuild_should_mask_owner_identity($currentUser) && finbuild_is_manager($userRole)) {
+    $isSubmanager = true; // скрыть контакты в UI, где завязано на этот флаг
+}
 $isAnalystList = $isAnalystScope && !finbuild_is_manager($userRole);
 
 if ($isAnalystList || $isPureAnalyst) {
@@ -58,7 +64,7 @@ if ($seesAllApplications) {
     
     // Фильтр по ответственному менеджеру (только для менеджера)
     $filterAssignedTo = '';
-    if ($userRole === 'manager' && !$isSubmanager && isset($_GET['assigned_to']) && $_GET['assigned_to'] !== '') {
+    if (finbuild_can('applications.assign', $currentUser) && isset($_GET['assigned_to']) && $_GET['assigned_to'] !== '') {
         $assignedToValue = $_GET['assigned_to'];
         // Проверяем сначала специальное значение "unassigned" для не назначенных заявок
         if ($assignedToValue === 'unassigned') {
@@ -69,8 +75,8 @@ if ($seesAllApplications) {
             // Иначе пытаемся преобразовать в ID менеджера
             $assignedToId = (int)$assignedToValue;
             if ($assignedToId > 0) {
-                // Проверяем, что это действительно менеджер
-                $checkStmt = $pdo->prepare("SELECT id FROM users WHERE id = ? AND role = 'manager' LIMIT 1");
+                // Проверяем, что это действительно менеджерская роль
+                $checkStmt = $pdo->prepare('SELECT id FROM users WHERE id = ? AND role IN (' . finbuild_manager_roles_sql_in() . ') LIMIT 1');
                 $checkStmt->execute([$assignedToId]);
                 if ($checkStmt->fetch()) {
                     $filterAssignedTo = $assignedToId;
@@ -84,9 +90,8 @@ if ($seesAllApplications) {
         $filterSearch = trim($_GET['search']);
     }
     
-    if ($userRole === 'manager') {
-        // Список менеджеров для фильтра «Ответственный»
-        $stmtManagers = $pdo->prepare("SELECT id, first_name, last_name FROM users WHERE role = 'manager' AND is_active = 1 ORDER BY last_name ASC, first_name ASC");
+    if (finbuild_can('applications.assign', $currentUser)) {
+        $stmtManagers = $pdo->prepare('SELECT id, first_name, last_name FROM users WHERE role IN (' . finbuild_manager_roles_sql_in() . ') AND is_active = 1 ORDER BY last_name ASC, first_name ASC');
         $stmtManagers->execute();
         $managersList = $stmtManagers->fetchAll(PDO::FETCH_ASSOC);
     } else {
@@ -227,7 +232,7 @@ $unreadWhereClause = $whereClause;
 if ($isAnalystList || finbuild_is_analyst_role($userRole)) {
     $unreadJoinCondition = '0=1';
     $unreadWhereParams = $whereParams;
-} elseif ($userRole === 'manager') {
+} elseif (finbuild_is_manager($userRole)) {
     $unreadJoinCondition = 'apc.is_read = 0 AND apc.user_id = a.created_by';
     $unreadWhereParams = $whereParams;
 } else {
@@ -265,7 +270,7 @@ $dataWhereParams = array_merge($whereParams, [
     ':limit' => $perPage,
     ':offset' => $offset
 ]);
-if ($userRole !== 'manager' && !$isAnalystList && !finbuild_is_analyst_role($userRole)) {
+if (!finbuild_is_manager($userRole) && !$isAnalystList && !finbuild_is_analyst_role($userRole)) {
     $dataWhereParams[':current_user'] = $userId;
 }
 
@@ -419,7 +424,7 @@ $stats['in_progress'] += $stats['pending_signing'] + $stats['product_request'] +
     <div class="row align-items-center">
         <div class="col">
             <h1 class="h3 mb-0">
-                <?php if ($userRole === 'manager' && !$isSubmanager): ?>
+                <?php if (finbuild_can('applications.assign', $currentUser)): ?>
                     Все заявки
                 <?php elseif ($isSubmanager): ?>
                     Мои заявки
@@ -432,7 +437,7 @@ $stats['in_progress'] += $stats['pending_signing'] + $stats['product_request'] +
                 <?php endif; ?>
             </h1>
             <p class="text-muted mb-0">
-                <?php if ($userRole === 'manager'): ?>
+                <?php if (finbuild_is_manager($userRole)): ?>
                     Управление всеми заявками системы
                 <?php elseif ($isPureAnalyst): ?>
                     Список заявок для анализа структуры и документов
@@ -980,7 +985,7 @@ $stats['in_progress'] += $stats['pending_signing'] + $stats['product_request'] +
 <div class="row">
     <div class="col-12">
         <!-- Статистика для менеджеров и аналитиков -->
-        <?php if ($userRole === 'manager' || $isAnalystList): ?>
+        <?php if (finbuild_is_manager($userRole) || $isAnalystList): ?>
         <div class="row stats-cards">
             <div class="col-xl-2 col-md-4 col-6 mb-3">
                 <div class="stat-card stat-total">
@@ -1039,7 +1044,7 @@ $stats['in_progress'] += $stats['pending_signing'] + $stats['product_request'] +
                 </div>
             </div>
             <?php endif; ?>
-            <?php if ($userRole === 'manager'): ?>
+            <?php if (finbuild_is_manager($userRole)): ?>
             <div class="col-xl-2 col-md-4 col-6 mb-3">
                 <div class="stat-card stat-total">
                     <div class="icon">
@@ -1061,14 +1066,14 @@ $stats['in_progress'] += $stats['pending_signing'] + $stats['product_request'] +
             <?php if (!$isAnalystList): ?>
             <div class="stats-chip stat-failed"><span class="chip-number"><?= $stats['failed'] ?></span>Провалены</div>
             <?php endif; ?>
-            <?php if ($userRole === 'manager'): ?>
+            <?php if (finbuild_is_manager($userRole)): ?>
             <div class="stats-chip stat-messages"><span class="chip-number"><?= $totalUnreadMessages ?></span>Новых сообщений</div>
             <?php endif; ?>
         </div>
         <?php endif; ?>
 
         <!-- Фильтры для менеджеров и аналитиков -->
-        <?php if ($userRole === 'manager' || $isAnalystList): ?>
+        <?php if (finbuild_is_manager($userRole) || $isAnalystList): ?>
         <div class="d-md-none mb-2">
             <button class="btn btn-outline-secondary w-100 filter-toggle-btn" type="button" data-bs-toggle="collapse" data-bs-target="#filtersCollapse" aria-expanded="false" aria-controls="filtersCollapse">
                 <i class="bi bi-funnel me-2"></i>Фильтры
@@ -1094,7 +1099,7 @@ $stats['in_progress'] += $stats['pending_signing'] + $stats['product_request'] +
     <?php endif; ?>
 </select>
                 </div>
-                <?php if ($userRole === 'manager' && !$isSubmanager): ?>
+                <?php if (finbuild_can('applications.assign', $currentUser)): ?>
                 <div class="col-md-3 mb-2">
                     <label class="form-label">Ответственный</label>
                     <select class="form-select" id="assignedToFilter">
@@ -1109,7 +1114,7 @@ $stats['in_progress'] += $stats['pending_signing'] + $stats['product_request'] +
                     </select>
                 </div>
                 <?php endif; ?>
-                <div class="col-md-<?= $userRole === 'manager' ? '4' : '7' ?> mb-2">
+                <div class="col-md-<?= finbuild_is_manager($userRole) ? '4' : '7' ?> mb-2">
                     <label class="form-label">Поиск</label>
                     <input type="text" class="form-control" id="searchInput" placeholder="Поиск по компании или ИНН..." value="<?= htmlspecialchars($filterSearch) ?>">
                 </div>
@@ -1133,7 +1138,7 @@ $stats['in_progress'] += $stats['pending_signing'] + $stats['product_request'] +
         <?php if (empty($applications)): ?>
             <?php
             // Определяем, есть ли активные фильтры
-            $hasActiveFilters = (($userRole === 'manager' || $isAnalystList) && ($filterStatus || $filterAssignedTo || $filterSearch));
+            $hasActiveFilters = ((finbuild_is_manager($userRole) || $isAnalystList) && ($filterStatus || $filterAssignedTo || $filterSearch));
             ?>
             <div class="empty-state">
                 <div class="empty-state-icon">
@@ -1147,7 +1152,7 @@ $stats['in_progress'] += $stats['pending_signing'] + $stats['product_request'] +
                 <?php else: ?>
                     <h4 class="text-muted mb-3">Заявок пока нет</h4>
                     <p class="text-muted mb-4">
-                        <?php if ($userRole === 'manager' || $isAnalystList): ?>
+                        <?php if (finbuild_is_manager($userRole) || $isAnalystList): ?>
                             В системе еще не создано ни одной заявки
                         <?php else: ?>
                             У вас пока нет созданных заявок
@@ -1175,7 +1180,7 @@ $stats['in_progress'] += $stats['pending_signing'] + $stats['product_request'] +
                             <?= getStatusBadge($application['status']) ?>
                         </div>
                         <div class="app-card-meta">
-                            <?php if ($userRole === 'manager' && !$isSubmanager): ?>
+                            <?php if (finbuild_can('applications.assign', $currentUser)): ?>
                                 <div class="app-card-row">
                                     <span class="app-card-label">Чья заявка:</span>
                                     <div>
@@ -1203,7 +1208,7 @@ $stats['in_progress'] += $stats['pending_signing'] + $stats['product_request'] +
                                     <span class="fw-semibold text-success"><?= formatAmount($application['amount']) ?></span>
                                 </div>
                             <?php endif; ?>
-                            <?php if ($userRole === 'manager' && !empty($application['assigned_to']) && !empty($application['assigned_first_name']) && !empty($application['assigned_last_name'])): ?>
+                            <?php if (finbuild_is_manager($userRole) && !empty($application['assigned_to']) && !empty($application['assigned_first_name']) && !empty($application['assigned_last_name'])): ?>
                                 <div class="app-card-row">
                                     <span class="app-card-label">Ответственный:</span>
                                     <span><?= htmlspecialchars(trim($application['assigned_first_name'] . ' ' . $application['assigned_last_name'])) ?></span>
@@ -1239,13 +1244,13 @@ $stats['in_progress'] += $stats['pending_signing'] + $stats['product_request'] +
                                 <th>ID</th>
                                 <th>Компания</th>
                                 <th>ИНН</th>
-                                <?php if ($userRole === 'manager' && !$isSubmanager): ?>
+                                <?php if (finbuild_can('applications.assign', $currentUser)): ?>
                                     <th>Чья заявка</th>
                                 <?php endif; ?>
                                 <th>Продукт</th>
                                 <th>Сумма</th>
                                 <th>Статус</th>
-                                <?php if ($userRole === 'manager'): ?>
+                                <?php if (finbuild_is_manager($userRole)): ?>
                                     <th>Ответственный</th>
                                 <?php endif; ?>
                                 <th>Дата создания</th>
@@ -1273,7 +1278,7 @@ $stats['in_progress'] += $stats['pending_signing'] + $stats['product_request'] +
                 <td>
                     <small class="text-muted"><?= htmlspecialchars($application['inn']) ?></small>
                 </td>
-               <?php if ($userRole === 'manager' && !$isSubmanager): ?>
+               <?php if (finbuild_can('applications.assign', $currentUser)): ?>
      <td>
         <!-- Плашка с ролью владельца -->
         <div class="role-badge-small mb-1">
@@ -1326,7 +1331,7 @@ $stats['in_progress'] += $stats['pending_signing'] + $stats['product_request'] +
                 <td class="td-application-status">
                     <?= getStatusBadge($application['status']) ?>
                 </td>
-                <?php if ($userRole === 'manager'): ?>
+                <?php if (finbuild_is_manager($userRole)): ?>
                 <td>
                     <?php if (!empty($application['assigned_to']) && !empty($application['assigned_first_name']) && !empty($application['assigned_last_name'])): ?>
                         <span class="text-muted small"><?= htmlspecialchars(trim($application['assigned_first_name'] . ' ' . $application['assigned_last_name'])) ?></span>
@@ -1337,7 +1342,7 @@ $stats['in_progress'] += $stats['pending_signing'] + $stats['product_request'] +
                 <?php endif; ?>
                 <td>
                     <div><?= date('d.m.Y H:i', strtotime($application['created_at'])) ?></div>
-                    <?php if ($userRole === 'manager' && !$isSubmanager): ?>
+                    <?php if (finbuild_can('applications.assign', $currentUser)): ?>
                         <?php
                         // Если есть added_by, значит заявку создал менеджер
                         if (!empty($application['added_by']) && !empty($application['manager_name']) && !empty($application['manager_surname'])) {
@@ -1463,7 +1468,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // Фильтрация теперь происходит на сервере через SQL запросы.
     // При изменении фильтров обновляем URL и перезагружаем страницу.
     
-    <?php if ($userRole === 'manager' || $isAnalystList): ?>
+    <?php if (finbuild_is_manager($userRole) || $isAnalystList): ?>
     const isAnalystList = <?= $isAnalystList ? 'true' : 'false' ?>;
     const statusFilter = document.getElementById('statusFilter');
     const assignedToFilter = document.getElementById('assignedToFilter');

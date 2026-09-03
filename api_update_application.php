@@ -3,7 +3,7 @@ require_once 'config.php';
 
 header('Content-Type: application/json');
 
-if (!isset($_SESSION['user_id']) || ($_SESSION['role'] ?? 'client') !== 'manager') {
+if (!isset($_SESSION['user_id']) || !finbuild_is_manager((string) ($_SESSION['role'] ?? ''))) {
     echo json_encode(['success' => false, 'error' => 'Доступ запрещен']);
     exit;
 }
@@ -41,8 +41,8 @@ if (!in_array($field, $allowedFields)) {
     exit;
 }
 
-// Ограниченный менеджер (submanager) не может менять ответственного
-if ($field === 'assigned_to' && finbuild_is_submanager()) {
+// Менеджер по заявкам не может менять ответственного
+if ($field === 'assigned_to' && !finbuild_can('applications.assign')) {
     echo json_encode(['success' => false, 'error' => 'Недостаточно прав для смены ответственного']);
     exit;
 }
@@ -57,6 +57,18 @@ try {
     
     if (!$application) {
         echo json_encode(['success' => false, 'error' => 'Заявка не найдена']);
+        exit;
+    }
+
+    $viewer = getCurrentUser() ?: ['role' => (string) ($_SESSION['role'] ?? ''), 'id' => (int) ($_SESSION['user_id'] ?? 0)];
+    if (!finbuild_can_access_application(
+        $pdo,
+        $applicationId,
+        (string) ($viewer['role'] ?? ''),
+        (int) ($viewer['id'] ?? 0),
+        finbuild_user_is_analyst_flag($viewer)
+    )) {
+        echo json_encode(['success' => false, 'error' => 'Доступ запрещен']);
         exit;
     }
 
@@ -114,7 +126,7 @@ try {
         // Ответственный: пусто = null, иначе ID пользователя (должен быть менеджер)
         $preparedValue = ($value === '' || $value === null) ? null : (int)$value;
         if ($preparedValue !== null) {
-            $check = $pdo->prepare("SELECT id FROM users WHERE id = ? AND role = 'manager' LIMIT 1");
+            $check = $pdo->prepare('SELECT id FROM users WHERE id = ? AND role IN (' . finbuild_manager_roles_sql_in() . ') LIMIT 1');
             $check->execute([$preparedValue]);
             if (!$check->fetch()) {
                 echo json_encode(['success' => false, 'error' => 'Ответственным может быть только менеджер']);

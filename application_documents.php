@@ -10,7 +10,7 @@ $currentUser = getCurrentUser();
 $userRole = $_SESSION['role'] ?? 'client';
 $userId = $_SESSION['user_id'];
 $userIsAnalystFlag = finbuild_user_is_analyst_flag($currentUser);
-$isSubmanager = finbuild_is_submanager($currentUser);
+$isSubmanager = finbuild_should_mask_owner_identity($currentUser);
 
 // Проверяем ID заявки
 $applicationId = $_GET['id'] ?? 0;
@@ -42,15 +42,7 @@ if (!finbuild_can_access_application($pdo, (int) $applicationId, $userRole, (int
     exit();
 }
 
-// Ограниченный менеджер: только заявки, где он ответственный (или сам создал)
-if (finbuild_is_submanager($currentUser)) {
-    $ownsApplication = ((int) ($application['created_by'] ?? 0) === (int) $userId)
-        || ((int) ($application['assigned_to'] ?? 0) === (int) $userId);
-    if (!$ownsApplication) {
-        header('Location: applications.php');
-        exit();
-    }
-}
+// Доступ case_manager уже учтён в finbuild_can_access_application
 
 $isAnalystView = finbuild_application_details_analyst_mode(
     $userRole,
@@ -119,7 +111,7 @@ function getFileIcon($fileType) {
             <a href="application_details.php?id=<?= $applicationId ?>" class="btn btn-outline-secondary">
                 <i class="bi bi-arrow-left me-2"></i>Назад к заявке
             </a>
-            <?php if (!$isAnalystView && $userRole !== 'manager'): ?>
+            <?php if (!$isAnalystView && !finbuild_is_manager($userRole)): ?>
                 <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#uploadDocumentModal">
                     <i class="bi bi-cloud-upload me-2"></i>Загрузить документ
                 </button>
@@ -214,7 +206,7 @@ function getFileIcon($fileType) {
                 <i class="bi bi-folder"></i>
                 <h4>Документы не загружены</h4>
                 <p class="text-muted">К этой заявке еще не прикреплены документы</p>
-                <?php if (!$isAnalystView && $userRole !== 'manager'): ?>
+                <?php if (!$isAnalystView && !finbuild_is_manager($userRole)): ?>
                     <button type="button" class="btn btn-primary mt-3" data-bs-toggle="modal" data-bs-target="#uploadDocumentModal">
                         <i class="bi bi-cloud-upload me-2"></i>Загрузить первый документ
                     </button>
@@ -257,7 +249,7 @@ function getFileIcon($fileType) {
     <a href="<?= htmlspecialchars(finbuild_upload_file_url('app_doc', (int) $doc['id'])) ?>" class="btn btn-outline-secondary btn-sm" target="_blank">
         <i class="bi bi-eye"></i>
     </a>
-    <?php if ($userRole !== 'manager' || $doc['uploaded_by'] == $userId): ?>
+    <?php if (!finbuild_is_manager($userRole) || $doc['uploaded_by'] == $userId): ?>
         <button type="button" class="btn btn-outline-danger btn-sm" 
                 onclick="deleteDocument(<?= $doc['id'] ?>)">
             <i class="bi bi-trash"></i>

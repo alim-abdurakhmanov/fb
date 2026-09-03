@@ -43,7 +43,7 @@ try {
     }
     
     // Клиенты могут загружать только в свои заявки, менеджеры - в любые
-    if ($userRole !== 'manager' && $document['created_by'] != $userId) {
+    if (!finbuild_is_manager($userRole) && $document['created_by'] != $userId) {
         echo json_encode(['success' => false, 'error' => 'Доступ запрещен']);
         exit;
     }

@@ -113,7 +113,7 @@ function finbuild_upload_can_access_bank_case(PDO $pdo, int $caseId, array $user
         return finbank_bank_submitted_case($pdo, $caseId, $bankCode) !== null;
     }
 
-    if ($role !== 'manager') {
+    if (!finbuild_is_manager($role)) {
         return false;
     }
 
@@ -255,7 +255,7 @@ function finbuild_upload_can_access(PDO $pdo, string $kind, int $id, array $user
             if (!$row) {
                 return false;
             }
-            if ($role === 'manager' || finbuild_is_analyst_role($role) || $isAnalystFlag) {
+            if (finbuild_is_manager($role) || finbuild_is_analyst_role($role) || $isAnalystFlag) {
                 return finbuild_upload_can_access_application_id($pdo, (int) $row['application_id'], $user);
             }
             return (int) $row['created_by'] === $userId;

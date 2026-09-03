@@ -35,16 +35,19 @@ if ($userRole === 'bank') {
 finbuild_enforce_analyst_page_access($userRole, $currentPage);
 
 // Ограниченный менеджер: нет доступа к админ-страницам (Продукты, Пользователи, статистика).
-$isSubmanager = finbuild_is_submanager($currentUser);
-if ($isSubmanager) {
-    $submanagerBlockedScripts = [
+$isCaseManager = finbuild_is_case_manager($currentUser);
+$hasFullManagerAccess = finbuild_has_full_manager_access($currentUser);
+$isSubmanager = $isCaseManager; // совместимость со старыми шаблонами
+if ($isCaseManager) {
+    $caseManagerBlockedScripts = [
         'products_admin.php',
         'users.php',
         'user_create.php',
         'user_view.php',
         'applications_monthly_stats.php',
+        'access_rights.php',
     ];
-    if (in_array($currentPage, $submanagerBlockedScripts, true)) {
+    if (in_array($currentPage, $caseManagerBlockedScripts, true)) {
         header('Location: applications.php');
         exit;
     }
@@ -656,13 +659,13 @@ if (!empty($currentUser['first_name']) && !empty($currentUser['last_name'])) {
             <!-- Пункт "Заявки" на первом месте -->
             <a class="nav-link <?= ($current_page == 'applications' && (!$isHybridAnalystPartner || $applicationsListScope !== 'all')) ? 'active' : '' ?>" href="applications.php">
                 <i class="bi bi-list-check"></i> 
-                <?php if ($userRole === 'manager' || $isPureAnalyst): ?>
+                <?php if (finbuild_is_manager($userRole) || $isPureAnalyst): ?>
                     Заявки
                 <?php else: ?>
                     Мои заявки
                 <?php endif; ?>
                 
-                <?php if ($userRole === 'manager' && $applicationsWithUnreadMessages > 0): ?>
+                <?php if (finbuild_is_manager($userRole) && $applicationsWithUnreadMessages > 0): ?>
                     <span class="sidebar-badge" title="Заявок с непрочитанными сообщениями: <?= (int) $applicationsWithUnreadMessages ?>">
                         <?= $applicationsWithUnreadMessages > 9 ? '9+' : $applicationsWithUnreadMessages ?>
                     </span>
@@ -716,21 +719,36 @@ if (!empty($currentUser['first_name']) && !empty($currentUser['last_name'])) {
             </a>
             <?php endif; ?>
             
-            <!-- Администрирование: только для руководителя (не для ограниченного менеджера) -->
-            <?php if ($userRole === 'manager' && !$isSubmanager): ?>
+            <!-- Администрирование -->
+            <?php if (
+                finbuild_can('admin.users', $currentUser)
+                || finbuild_can('admin.products', $currentUser)
+                || finbuild_can('stats.monthly', $currentUser)
+                || finbuild_can('access_rights.manage', $currentUser)
+            ): ?>
           <div class="nav-section-title">Администрирование</div>
             
+            <?php if (finbuild_can('admin.users', $currentUser)): ?>
             <a class="nav-link <?= (in_array($currentPage, ['users.php', 'user_create.php', 'user_view.php'])) ? 'active' : '' ?>" href="users.php">
                 <i class="bi bi-people"></i> Пользователи
             </a>
+            <?php endif; ?>
 
+            <?php if (finbuild_can('admin.products', $currentUser)): ?>
             <a class="nav-link <?= $currentPage === 'products_admin.php' ? 'active' : '' ?>" href="products_admin.php">
                 <i class="bi bi-grid-3x3-gap"></i> Продукты
             </a>
+            <?php endif; ?>
 
-            <?php if (in_array((int) ($currentUser['id'] ?? 0), FINBUILD_DIRECTOR_USER_IDS, true)): ?>
+            <?php if (finbuild_can('stats.monthly', $currentUser)): ?>
             <a class="nav-link <?= $currentPage === 'applications_monthly_stats.php' ? 'active' : '' ?>" href="applications_monthly_stats.php">
                 <i class="bi bi-bar-chart-line"></i> Статистика
+            </a>
+            <?php endif; ?>
+
+            <?php if (finbuild_can('access_rights.manage', $currentUser)): ?>
+            <a class="nav-link <?= $currentPage === 'access_rights.php' ? 'active' : '' ?>" href="access_rights.php">
+                <i class="bi bi-shield-lock"></i> Права доступа
             </a>
             <?php endif; ?>
             

@@ -1,6 +1,6 @@
 <?php
 /**
- * Диагностика SMTP-отправки. Доступ только руководителям (id из FINBUILD_DIRECTOR_USER_IDS).
+ * Диагностика SMTP-отправки. Доступ только руководителям (role=director).
  * Использование: /mail_test.php?to=ваш_адрес@example.com
  * ВНИМАНИЕ: после отладки удалите этот файл с сервера.
  */
@@ -9,7 +9,7 @@ require_once 'config.php';
 checkAuth();
 $currentUser = getCurrentUser();
 
-if (!in_array((int) ($currentUser['id'] ?? 0), FINBUILD_DIRECTOR_USER_IDS, true)) {
+if (!finbuild_is_director($currentUser)) {
     http_response_code(403);
     exit('Доступ запрещён.');
 }

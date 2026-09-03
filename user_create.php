@@ -7,7 +7,7 @@ $pdo = getPDO();
 checkAuth();
 $currentUser = getCurrentUser();
 $accessRole = (string) ($currentUser['role'] ?? '');
-if ($accessRole !== 'manager' || finbuild_is_submanager($currentUser)) {
+if (!finbuild_can('admin.users', $currentUser)) {
     if ($accessRole === 'bank') {
         header('Location: bank_applications.php');
     } else {
@@ -27,15 +27,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $first_name = trim($_POST['first_name'] ?? '');
     $last_name = trim($_POST['last_name'] ?? '');
     $role = $_POST['role'] ?? 'client';
-    if (!in_array($role, ['client', 'partner', 'analyst', 'manager'], true)) {
-        $role = 'client';
+    if (!in_array($role, ['client', 'partner', 'analyst', 'case_manager'], true)) {
+        // Старое значение формы «manager» = менеджер по заявкам
+        if ($role === 'manager') {
+            $role = 'case_manager';
+        } else {
+            $role = 'client';
+        }
     }
-    // У партнёра, аналитика и менеджера нет компании/ИНН
-    $company_name = in_array($role, ['partner', 'analyst', 'manager'], true) ? '' : trim($_POST['company_name'] ?? '');
+    // У партнёра, аналитика и менеджера по заявкам нет компании/ИНН
+    $company_name = in_array($role, ['partner', 'analyst', 'case_manager'], true) ? '' : trim($_POST['company_name'] ?? '');
     $phone = trim($_POST['phone'] ?? '');
     $is_analyst = ($role === 'partner' && !empty($_POST['is_analyst'])) ? 1 : 0;
-    // Через админку можно создать только ограниченного менеджера (submanager), не руководителя
-    $is_submanager = ($role === 'manager') ? 1 : 0;
+    $is_submanager = ($role === 'case_manager') ? 1 : 0;
 
     // Валидация
     if (empty($email) || empty($password) || empty($first_name) || empty($last_name)) {
@@ -46,7 +50,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $errors[] = "Некорректный формат E-mail";
     }
     
-    if ($role === 'partner' || $role === 'analyst' || $role === 'manager') {
+    if ($role === 'partner' || $role === 'analyst' || $role === 'case_manager') {
         $inn = '';
     } else {
         if (empty($inn)) {
@@ -327,11 +331,11 @@ https://finbuild.ru
                                         </div>
                                         <div class="col-md-3">
                                             <div class="form-check">
-                                                <input class="form-check-input" type="radio" name="role" id="roleManager" value="manager" 
-                                                    <?= (($_POST['role'] ?? '') === 'manager') ? 'checked' : '' ?>
+                                                <input class="form-check-input" type="radio" name="role" id="roleManager" value="case_manager" 
+                                                    <?= (($_POST['role'] ?? '') === 'case_manager' || ($_POST['role'] ?? '') === 'manager') ? 'checked' : '' ?>
                                                     onchange="toggleCompanyField()">
                                                 <label class="form-check-label h6 mb-0" for="roleManager">
-                                                    Менеджер
+                                                    Менеджер по заявкам
                                                 </label>
                                             </div>
                                         </div>

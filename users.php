@@ -8,7 +8,7 @@ $pdo = getPDO();
 checkAuth();
 $currentUser = getCurrentUser();
 
-if ($currentUser['role'] !== 'manager' || finbuild_is_submanager($currentUser)) {
+if (!finbuild_can('admin.users', $currentUser)) {
     header('Location: index.php');
     exit();
 }
@@ -18,7 +18,7 @@ $role_filter = $_GET['role_filter'] ?? 'all';
 $status_filter = $_GET['status_filter'] ?? 'all'; // Новый фильтр
 $last_name_search = trim($_GET['last_name'] ?? '');
 
-$sql = "SELECT u.id, u.email, u.inn, u.first_name, u.last_name, u.company_name, u.role, u.is_analyst, u.is_submanager, u.registration_date, u.is_active, u.avatar_path,
+$sql = "SELECT u.id, u.email, u.inn, u.first_name, u.last_name, u.company_name, u.role, u.is_analyst, u.registration_date, u.is_active, u.avatar_path,
                u.created_by,
                creator.first_name AS creator_first_name,
                creator.last_name AS creator_last_name
@@ -27,9 +27,8 @@ $sql = "SELECT u.id, u.email, u.inn, u.first_name, u.last_name, u.company_name, 
         WHERE 1=1";
 $params = [];
 
-// Показываем всех, кроме банков и руководителей (manager без is_submanager).
-// Ограниченные менеджеры (manager + is_submanager=1) — отображаются.
-$sql .= " AND u.role != 'bank' AND NOT (u.role = 'manager' AND COALESCE(u.is_submanager, 0) = 0)";
+// Не показываем банки, руководителей и менеджеров (полный доступ) — только case_manager и остальные роли.
+$sql .= " AND u.role NOT IN ('bank', 'director', 'manager')";
 
 // Фильтр по роли
 if ($role_filter === 'client') {
@@ -39,7 +38,7 @@ if ($role_filter === 'client') {
 } elseif ($role_filter === 'analyst') {
     $sql .= " AND (u.role = 'analyst' OR u.is_analyst = 1)";
 } elseif ($role_filter === 'manager') {
-    $sql .= " AND u.role = 'manager' AND COALESCE(u.is_submanager, 0) = 1";
+    $sql .= " AND u.role = 'case_manager'";
 }
 
 // Фильтр по статусу (Новый)
@@ -176,7 +175,7 @@ require_once 'header.php';
                     <option value="client" <?= $role_filter === 'client' ? 'selected' : '' ?>>Клиенты</option>
                     <option value="partner" <?= $role_filter === 'partner' ? 'selected' : '' ?>>Партнеры</option>
                     <option value="analyst" <?= $role_filter === 'analyst' ? 'selected' : '' ?>>Аналитики</option>
-                    <option value="manager" <?= $role_filter === 'manager' ? 'selected' : '' ?>>Менеджеры</option>
+                    <option value="manager" <?= $role_filter === 'manager' ? 'selected' : '' ?>>Менеджеры по заявкам</option>
                 </select>
             </div>
 
@@ -267,8 +266,8 @@ require_once 'header.php';
                                     <?php endif; ?>
                                 </td>
                                 <td>
-                                    <?php if ($user['role'] === 'manager'): ?>
-                                        <span class="badge badge-custom badge-role-manager">Менеджер</span>
+                                    <?php if ($user['role'] === 'case_manager'): ?>
+                                        <span class="badge badge-custom badge-role-manager">Менеджер по заявкам</span>
                                     <?php elseif ($user['role'] === 'partner' && !empty($user['is_analyst'])): ?>
                                         <span class="badge badge-custom badge-role-partner-analyst">Партнёр, аналитик</span>
                                     <?php elseif ($user['role'] === 'partner'): ?>

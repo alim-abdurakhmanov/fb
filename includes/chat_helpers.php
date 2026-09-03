@@ -133,13 +133,14 @@ if (!function_exists('finbuild_chat_sender_html')) {
         $isOwn = $viewerId > 0 && $senderId === $viewerId;
         $senderRole = (string) ($message['role'] ?? '');
         $viewerRole = (string) ($viewer['role'] ?? ($_SESSION['role'] ?? ''));
-        $viewerIsSub = function_exists('finbuild_is_submanager')
-            ? finbuild_is_submanager($viewer)
-            : ($viewerRole === 'manager' && !empty($viewer['is_submanager']));
-        $senderIsSub = $senderRole === 'manager' && !empty($message['is_submanager']);
+        $viewerMasks = function_exists('finbuild_should_mask_owner_identity')
+            ? finbuild_should_mask_owner_identity($viewer)
+            : (function_exists('finbuild_is_case_manager') && finbuild_is_case_manager($viewer));
+        $senderIsSub = $senderRole === 'case_manager'
+            || ($senderRole === 'manager' && !empty($message['is_submanager']));
         $name = trim(((string) ($message['first_name'] ?? '')) . ' ' . ((string) ($message['last_name'] ?? '')));
 
-        if (!$isOwn && $viewerIsSub && ($senderRole === 'partner' || $senderRole === 'client')) {
+        if (!$isOwn && $viewerMasks && ($senderRole === 'partner' || $senderRole === 'client')) {
             if ($senderRole === 'partner') {
                 return finbuild_chat_role_badge_html('Агент', 'bg-info text-dark');
             }
@@ -151,9 +152,17 @@ if (!function_exists('finbuild_chat_sender_html')) {
         }
 
         $html = htmlspecialchars($name);
-        if ($senderRole === 'manager') {
-            $directorIds = defined('FINBUILD_DIRECTOR_USER_IDS') ? FINBUILD_DIRECTOR_USER_IDS : [];
-            $managerLabel = in_array($senderId, $directorIds, true) ? 'Руководитель' : 'Менеджер';
+        if (function_exists('finbuild_is_manager') ? finbuild_is_manager($senderRole) : in_array($senderRole, ['director', 'manager', 'case_manager'], true)) {
+            $managerLabel = 'Менеджер';
+            if ($senderRole === 'director') {
+                $managerLabel = 'Руководитель';
+            } elseif ($senderRole === 'case_manager') {
+                $managerLabel = 'Менеджер по заявкам';
+            }
+            // Для клиента/партнёра case_manager уже замаскирован выше; для остальных — по роли
+            if ($senderRole === 'case_manager' && ($viewerRole === 'partner' || $viewerRole === 'client')) {
+                $managerLabel = 'Менеджер';
+            }
             $html .= finbuild_chat_role_badge_html($managerLabel, 'bg-primary text-white', true);
         }
 
@@ -186,10 +195,10 @@ if (!function_exists('finbuild_chat_render_messages_html')) {
             if ($isOwn) {
                 $classes[] = 'own';
             }
-            if (!$isOwn && $role === 'manager') {
+            if (!$isOwn && (function_exists('finbuild_is_manager') ? finbuild_is_manager($role) : $role === 'manager')) {
                 $classes[] = 'other-manager';
             }
-            $classes[] = ($role === 'manager') ? 'from-manager' : 'from-client';
+            $classes[] = (function_exists('finbuild_is_manager') ? finbuild_is_manager($role) : $role === 'manager') ? 'from-manager' : 'from-client';
 
             $out .= '<div class="' . implode(' ', $classes) . '">';
             $out .= '<div class="message-header">';

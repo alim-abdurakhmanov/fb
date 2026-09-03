@@ -51,14 +51,20 @@ if ($userIsAnalystFlag && (int) $productApp['application_creator'] !== (int) $us
     exit();
 }
 
-// Клиенты и партнеры могут видеть только свои заявки
-if ($userRole !== 'manager' && $productApp['application_creator'] != $userId) {
+// Клиенты и партнеры могут видеть только свои заявки; case_manager — только назначенные
+if (!finbuild_can_access_application(
+    $pdo,
+    (int) $productApp['application_id'],
+    $userRole,
+    (int) $userId,
+    $userIsAnalystFlag
+)) {
     header('Location: applications.php');
     exit();
 }
 
 require_once __DIR__ . '/includes/bank_portal.php';
-$showBankWorkTab = ($userRole === 'manager' && finbank_is_portal_application_product($productApp));
+$showBankWorkTab = (finbuild_is_manager($userRole) && finbank_is_portal_application_product($productApp));
 $productTab = $_GET['tab'] ?? 'details';
 $allowedProductTabs = $showBankWorkTab ? ['details', 'documents', 'bank'] : ['details', 'documents'];
 if (!in_array($productTab, $allowedProductTabs, true)) {
@@ -193,7 +199,7 @@ foreach ($messages as $message) {
 }
 
 // Помечаем сообщения как прочитанные (для менеджера — только от владельца заявки)
-if ($userRole === 'manager') {
+if (finbuild_is_manager($userRole)) {
     $stmt = $pdo->prepare("
         UPDATE application_product_chats 
         SET is_read = 1 
@@ -211,7 +217,7 @@ if ($userRole === 'manager') {
 
 // Получаем общее количество непрочитанных сообщений по всем продуктам заявки
 // Для менеджеров — только сообщения от владельца заявки (a.created_by)
-if ($userRole === 'manager') {
+if (finbuild_is_manager($userRole)) {
     $stmtUnreadTotal = $pdo->prepare("
         SELECT COUNT(DISTINCT apc.id) as total_unread
         FROM application_products ap
@@ -259,7 +265,7 @@ foreach ($documents as $doc) {
 
 // Считаем бейдж для вкладки
 $documentsCount = 0;
-if ($userRole === 'manager') {
+if (finbuild_is_manager($userRole)) {
     // Менеджер: считаем заполненные
     foreach ($documents as $d) { if (!empty($documentFiles[$d['id']])) $documentsCount++; }
 } else {
@@ -527,7 +533,7 @@ function getProductTypeText($productType) {
     <button class="nav-link rounded-pill d-flex align-items-center justify-content-center position-relative <?= $productTab === 'documents' ? 'active' : '' ?>" id="documents-tab" data-bs-toggle="pill" data-bs-target="#documents" type="button" role="tab">
     <i class="bi bi-folder me-2"></i>Документы
     
-    <?php if ($userRole === 'manager'): ?>
+    <?php if (finbuild_is_manager($userRole)): ?>
         <!-- Для менеджера: Два счетчика -->
         <?php if ($docsCompleted > 0): ?>
             <span class="badge rounded-pill bg-success ms-2 shadow-sm" title="Загружено" style="font-size: 0.7em;">
@@ -856,7 +862,7 @@ function getProductTypeText($productType) {
         <?php endif; ?>
         
         <!-- Дополнительные данные только для руководителя (не для ограниченного менеджера) -->
-        <?php if (finbuild_is_director($currentUser) && $product): ?>
+        <?php if (finbuild_has_full_manager_access($currentUser) && $product): ?>
         <div class="accordion mt-3" id="managerInfoAccordion">
             <div class="accordion-item">
                 <h2 class="accordion-header" id="managerInfoHeading">
@@ -953,7 +959,7 @@ function getProductTypeText($productType) {
         <?php endif; ?>
         
         <!-- Управление для менеджеров -->
-        <?php if ($userRole === 'manager'): ?>
+        <?php if (finbuild_is_manager($userRole)): ?>
         <div class="mt-4 pt-3 border-top">
             <h6 class="mb-3">Управление продуктом</h6>
             <form method="POST">
@@ -1016,7 +1022,7 @@ function getProductTypeText($productType) {
                             </div>
                         <?php else: ?>
                             <?php foreach ($messages as $message): ?>
-                                <div class="message <?= $message['user_id'] == $userId ? 'own' : (($message['role'] === 'manager') ? 'other-manager' : '') ?> <?= ($message['role'] === 'manager') ? 'from-manager' : 'from-client' ?>">
+                                <div class="message <?= $message['user_id'] == $userId ? 'own' : ((finbuild_is_manager((string)($message['role'] ?? ''))) ? 'other-manager' : '') ?> <?= (finbuild_is_manager((string)($message['role'] ?? ''))) ? 'from-manager' : 'from-client' ?>">
                                     <div class="message-header">
                                         <span class="message-sender">
                                             <?= finbuild_chat_sender_html($message, $currentUser) ?>
@@ -1102,7 +1108,7 @@ function getProductTypeText($productType) {
             <h5 class="mb-1">Пакет документов</h5>
             <p class="text-muted small mb-0">Загрузите требуемые файлы в соответствующие ячейки</p>
         </div>
-        <?php if ($userRole === 'manager'): ?>
+        <?php if (finbuild_is_manager($userRole)): ?>
             <button class="btn btn-primary shadow-sm mobile-nowrap-btn" data-bs-toggle="modal" data-bs-target="#createDocumentModal">
                 <i class="bi bi-plus-lg me-2"></i>Добавить запрос
             </button>
@@ -1147,7 +1153,7 @@ function getProductTypeText($productType) {
                                         </div>
                                     </div>
                                 </div>
-                                <?php if ($userRole === 'manager'): ?>
+                                <?php if (finbuild_is_manager($userRole)): ?>
                                     <div class="dropdown">
                                         <button class="btn btn-link text-muted p-0" data-bs-toggle="dropdown">
                                             <i class="bi bi-three-dots-vertical"></i>
@@ -1177,7 +1183,7 @@ function getProductTypeText($productType) {
             <small class="text-warning-emphasis d-block fw-bold mb-1">
                 <i class="bi bi-chat-left-text me-1"></i>
                 <?php 
-                    if ($userRole === 'manager') {
+                    if (finbuild_is_manager($userRole)) {
                         
                         echo 'Комментарий ' . (isset($productApp['user_role']) && $productApp['user_role'] === 'partner' ? 'партнера' : 'клиента') . ':';
                         
@@ -1212,7 +1218,7 @@ function getProductTypeText($productType) {
                                                         <?php echo formatFileSize($file['file_size']); ?>
                                                     </div>
                                                 </div>
-                                                <?php if ($userRole === 'manager'): ?>
+                                                <?php if (finbuild_is_manager($userRole)): ?>
                                                     <!-- z-index нужен, чтобы кнопка была поверх stretched-link -->
                                                     <div class="ms-2 position-relative" style="z-index: 10;">
                                                         <button class="btn btn-icon btn-sm text-danger bg-light rounded-circle delete-file-btn" data-file-id="<?php echo $file['id']; ?>" title="Удалить">
@@ -2571,7 +2577,7 @@ function deleteProduct(productAppId, productName) {
                         <label>Файлы</label>
                         <input type="file" class="form-control" name="document_files[]" multiple required>
                     </div>
-                    <?php if ($userRole !== 'manager'): ?>
+                    <?php if (!finbuild_is_manager($userRole)): ?>
                         <div class="mb-3">
                             <label>Комментарий</label>
                             <textarea class="form-control" name="client_comment"></textarea>
@@ -2832,7 +2838,11 @@ document.addEventListener('DOMContentLoaded', function() {
     const applicationProductId = root.getAttribute('data-application-product-id');
     const FINBANK_DRAFT = <?= json_encode(FINBANK_STATUS_DRAFT, JSON_UNESCAPED_UNICODE) ?>;
     const bankChatUserId = <?= (int) $userId ?>;
-    const finbuildDirectorIds = <?= json_encode(array_map('intval', FINBUILD_DIRECTOR_USER_IDS)) ?>;
+    const finbuildManagerRoleLabels = <?= json_encode([
+        'director' => 'Руководитель',
+        'manager' => 'Менеджер',
+        'case_manager' => 'Менеджер по заявкам',
+    ], JSON_UNESCAPED_UNICODE) ?>;
     const bankWorkHistoryLabels = <?= json_encode([
         FINBANK_STATUS_DRAFT => finbank_case_status_label_history(FINBANK_STATUS_DRAFT),
         FINBANK_STATUS_SENT => finbank_case_status_label_history(FINBANK_STATUS_SENT),
@@ -3187,10 +3197,10 @@ document.addEventListener('DOMContentLoaded', function() {
                         const own = uid === bankChatUserId;
                         const who = ((m.first_name || '') + ' ' + (m.last_name || '')).trim();
                         const bankBadgeText = ((m.user_company_name || '').trim()) || 'Банк';
-                        const managerLabel = finbuildDirectorIds.indexOf(uid) !== -1 ? 'Руководитель' : 'Менеджер';
+                        const managerLabel = finbuildManagerRoleLabels[m.role] || 'Менеджер';
                         const roleBadge = m.role === 'bank'
                             ? '<span class="badge bg-secondary ms-1">' + esc(bankBadgeText) + '</span>'
-                            : '<span class="badge bg-primary text-white ms-1">' + managerLabel + '</span>';
+                            : '<span class="badge bg-primary text-white ms-1">' + esc(managerLabel) + '</span>';
                         const files = m.files && m.files.length ? m.files : [];
                         const text = (m.message || '').trim();
                         mh += '<div class="message' + (own ? ' own' : '') + '">';

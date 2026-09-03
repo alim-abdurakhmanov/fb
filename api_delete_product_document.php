@@ -14,7 +14,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 }
 
 $userRole = $_SESSION['role'] ?? 'client';
-if ($userRole !== 'manager') {
+if (!finbuild_is_manager($userRole)) {
     echo json_encode(['success' => false, 'error' => 'Недостаточно прав']);
     exit;
 }

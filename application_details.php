@@ -44,16 +44,6 @@ if (!finbuild_can_access_application($pdo, (int) $applicationId, $userRole, (int
     exit();
 }
 
-// Ограниченный менеджер: только заявки, где он ответственный (или сам создал)
-if (finbuild_is_submanager($currentUser)) {
-    $ownsApplication = ((int) ($application['created_by'] ?? 0) === (int) $userId)
-        || ((int) ($application['assigned_to'] ?? 0) === (int) $userId);
-    if (!$ownsApplication) {
-        header('Location: applications.php');
-        exit();
-    }
-}
-
 $isAnalystView = finbuild_application_details_analyst_mode(
     $userRole,
     $userIsAnalystFlag,
@@ -67,7 +57,7 @@ if (finbuild_analyst_cannot_view_failed_application($application, $userRole, $us
     exit();
 }
 
-if ($userRole === 'manager' && $_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['dismiss_duplicate_warning'])) {
+if (finbuild_is_manager($userRole) && $_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['dismiss_duplicate_warning'])) {
     $postAid = (int)($_POST['application_id'] ?? 0);
     if ($postAid === (int)$applicationId) {
         try {
@@ -132,14 +122,15 @@ if ($returnParam !== '' && strpos($returnParam, '://') === false && strpos($retu
 
 $structureAjaxUrl = finbuild_application_structure_page_ajax_url((int) $applicationId, $returnParam);
 
-// Ограниченный менеджер не может менять ответственного
-$isSubmanager = finbuild_is_submanager($currentUser);
-$showRoadmapTab = finbuild_is_director($currentUser);
+// Без права applications.assign не может менять ответственного
+$isSubmanager = finbuild_should_mask_owner_identity($currentUser)
+    || !finbuild_can('applications.assign', $currentUser);
+$showRoadmapTab = finbuild_can('roadmap.edit', $currentUser);
 
-// Список менеджеров для поля "Ответственный" (только для менеджеров с правом смены)
+// Список менеджеров для поля "Ответственный"
 $managersList = [];
-if ($userRole === 'manager' && !$isSubmanager) {
-    $stmtManagers = $pdo->prepare("SELECT id, first_name, last_name FROM users WHERE role = 'manager' AND is_active = 1 ORDER BY last_name ASC, first_name ASC");
+if (finbuild_can('applications.assign', $currentUser)) {
+    $stmtManagers = $pdo->prepare('SELECT id, first_name, last_name FROM users WHERE role IN (' . finbuild_manager_roles_sql_in() . ') AND is_active = 1 ORDER BY last_name ASC, first_name ASC');
     $stmtManagers->execute();
     $managersList = $stmtManagers->fetchAll(PDO::FETCH_ASSOC);
 }
@@ -174,7 +165,7 @@ if (!$isAnalystView) {
 // Для менеджеров — только сообщения от владельца заявки (created_by)
 $applicationOwnerId = $application['created_by'];
 foreach ($products as $product) {
-    if ($userRole === 'manager') {
+    if (finbuild_is_manager($userRole)) {
         $stmtUnread = $pdo->prepare("
             SELECT COUNT(*) as unread_count 
             FROM application_product_chats 
@@ -295,7 +286,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_status'])) {
 }
 
 $possibleDuplicateApplicationId = null;
-if ($userRole === 'manager' && $application['product_type'] === 'bg' && empty($application['duplicate_warning_dismissed'] ?? 0)) {
+if (finbuild_is_manager($userRole) && $application['product_type'] === 'bg' && empty($application['duplicate_warning_dismissed'] ?? 0)) {
     try {
         $stmtDup = $pdo->prepare("
             SELECT id FROM applications
@@ -412,7 +403,7 @@ if ($userRole === 'manager' && $application['product_type'] === 'bg' && empty($a
     </div>
 </div>
 
-<?php if ($userRole === 'manager' && $possibleDuplicateApplicationId): ?>
+<?php if (finbuild_is_manager($userRole) && $possibleDuplicateApplicationId): ?>
 <div class="duplicate-suspect-banner alert mb-4 border-0 shadow-sm" role="alert">
     <div class="duplicate-suspect-banner__inner">
         <div class="duplicate-suspect-banner__body">
@@ -1816,7 +1807,7 @@ body.app-chat-open .app-chat-fab { display: none; }
                     <i class="bi bi-folder me-2"></i><span class="tab-label">Документы</span>
                 </button>
             </li>
-                <?php if ($userRole === 'manager'): ?>
+                <?php if (finbuild_is_manager($userRole)): ?>
             <li class="nav-item" role="presentation">
     <button class="nav-link has-badge" id="analytics-tab" data-bs-toggle="tab" data-bs-target="#analytics" type="button" role="tab">
         <i class="bi bi-graph-up me-2"></i><span class="tab-label">Аналитика</span>
@@ -1853,7 +1844,7 @@ body.app-chat-open .app-chat-fab { display: none; }
                         <!--     <div class="detail-row">
                                 <div class="detail-label">Статус заявки</div>
                                 <div class="detail-value">
-                                    <?php if ($userRole === 'manager'): ?>
+                                    <?php if (finbuild_is_manager($userRole)): ?>
                                         <form method="POST" class="d-inline">
                                             <input type="hidden" name="update_status" value="1">
                                            <select name="status" class="form-select status-selector" onchange="this.form.submit()">
@@ -1896,7 +1887,7 @@ body.app-chat-open .app-chat-fab { display: none; }
                                             $gpd = trim((string)($application['guarantee_provision_deadline'] ?? ''));
                                             echo $gpd !== '' ? htmlspecialchars($gpd) : '-';
                                         ?></span>
-                                        <?php if ($userRole === 'manager'): ?>
+                                        <?php if (finbuild_is_manager($userRole)): ?>
                                         <i class="bi bi-pencil edit-icon" onclick="enableEdit('guarantee_provision_deadline')"></i>
                                         <?php endif; ?>
                                         <input type="text" class="form-control form-control-sm edit-input"
@@ -1915,7 +1906,7 @@ body.app-chat-open .app-chat-fab { display: none; }
                                 </div>
                             </div>
                             <?php endif; ?>
-                            <?php if ($userRole === 'manager'): ?>
+                            <?php if (finbuild_is_manager($userRole)): ?>
                             <div class="detail-row">
                                 <div class="detail-label">Ответственный</div>
                                 <div class="detail-value">
@@ -1967,7 +1958,7 @@ body.app-chat-open .app-chat-fab { display: none; }
                             <div class="detail-value">
                                 <div class="editable-field" id="fz_type_field" data-field="fz_type">
                                     <span class="field-value"><?= htmlspecialchars($application['fz_type'] ?? '-') ?></span>
-                                    <?php if ($userRole === 'manager'): ?>
+                                    <?php if (finbuild_is_manager($userRole)): ?>
                                     <i class="bi bi-pencil edit-icon" onclick="enableEdit('fz_type')"></i>
                                     <?php endif; ?>
                                     <select class="form-select form-select-sm edit-input" id="fz_type_input">
@@ -1993,7 +1984,7 @@ body.app-chat-open .app-chat-fab { display: none; }
                             <div class="detail-value">
                                 <div class="editable-field" id="guarantee_type_field" data-field="guarantee_type">
                                     <span class="field-value"><?= htmlspecialchars($application['guarantee_type'] ?? '-') ?></span>
-                                    <?php if ($userRole === 'manager'): ?>
+                                    <?php if (finbuild_is_manager($userRole)): ?>
                                     <i class="bi bi-pencil edit-icon" onclick="enableEdit('guarantee_type')"></i>
                                     <?php endif; ?>
                                     <select class="form-select form-select-sm edit-input" id="guarantee_type_input">
@@ -2022,7 +2013,7 @@ body.app-chat-open .app-chat-fab { display: none; }
                                     <div class="detail-value">
                                         <div class="editable-field" id="amount_field" data-field="amount">
                                             <span class="field-value"><?= formatAmount($application['amount']) ?></span>
-                                            <?php if ($userRole === 'manager'): ?>
+                                            <?php if (finbuild_is_manager($userRole)): ?>
                                             <i class="bi bi-pencil edit-icon" onclick="enableEdit('amount')"></i>
                                             <?php endif; ?>
                                             <input type="number" class="form-control form-control-sm edit-input" 
@@ -2046,7 +2037,7 @@ body.app-chat-open .app-chat-fab { display: none; }
                 <span class="field-value">
                     <?= $application['term_bg'] ? date('d.m.Y', strtotime($application['term_bg'])) : '-' ?>
                 </span>
-                <?php if ($userRole === 'manager'): ?>
+                <?php if (finbuild_is_manager($userRole)): ?>
                 <i class="bi bi-pencil edit-icon" onclick="enableEdit('term_bg')"></i>
                 <?php endif; ?>
                 <input type="date" class="form-control form-control-sm edit-input" 
@@ -2069,7 +2060,7 @@ body.app-chat-open .app-chat-fab { display: none; }
     <div class="detail-value">
         <div class="editable-field" id="purchase_number_field" data-field="purchase_number">
             <span class="field-value"><?= trim((string)($application['purchase_number'] ?? '')) !== '' ? htmlspecialchars($application['purchase_number']) : '-' ?></span>
-            <?php if ($userRole === 'manager'): ?>
+            <?php if (finbuild_is_manager($userRole)): ?>
             <i class="bi bi-pencil edit-icon" onclick="enableEdit('purchase_number')"></i>
             <div class="input-group edit-input" id="purchase_number_input_group" style="display: none;">
                 <input type="text" class="form-control form-control-sm"
@@ -2105,7 +2096,7 @@ body.app-chat-open .app-chat-fab { display: none; }
                     echo '-';
                 }
             ?></span>
-            <?php if ($userRole === 'manager'): ?>
+            <?php if (finbuild_is_manager($userRole)): ?>
             <i class="bi bi-pencil edit-icon" onclick="enableEdit('purchase_link')"></i>
             <?php endif; ?>
             <input type="url" class="form-control form-control-sm edit-input"
@@ -2129,7 +2120,7 @@ body.app-chat-open .app-chat-fab { display: none; }
     <div class="detail-value">
         <div class="editable-field" id="contract_subject_field" data-field="contract_subject">
             <span class="field-value"><?= trim((string)($application['contract_subject'] ?? '')) !== '' ? htmlspecialchars($application['contract_subject']) : '-' ?></span>
-            <?php if ($userRole === 'manager'): ?>
+            <?php if (finbuild_is_manager($userRole)): ?>
             <i class="bi bi-pencil edit-icon" onclick="enableEdit('contract_subject')"></i>
             <?php endif; ?>
             <textarea class="form-control form-control-sm edit-input" 
@@ -2151,7 +2142,7 @@ body.app-chat-open .app-chat-fab { display: none; }
     <div class="detail-value">
         <div class="editable-field" id="contract_price_field" data-field="contract_price">
             <span class="field-value"><?= formatAmount($application['contract_price']) ?></span>
-            <?php if ($userRole === 'manager'): ?>
+            <?php if (finbuild_is_manager($userRole)): ?>
             <i class="bi bi-pencil edit-icon" onclick="enableEdit('contract_price')"></i>
             <?php endif; ?>
             <input type="number" class="form-control form-control-sm edit-input" 
@@ -2173,7 +2164,7 @@ body.app-chat-open .app-chat-fab { display: none; }
     <div class="detail-value">
         <div class="editable-field" id="customer_inn_field" data-field="customer_inn">
             <span class="field-value"><?= trim((string)($application['customer_inn'] ?? '')) !== '' ? htmlspecialchars($application['customer_inn']) : '-' ?></span>
-            <?php if ($userRole === 'manager'): ?>
+            <?php if (finbuild_is_manager($userRole)): ?>
             <i class="bi bi-pencil edit-icon" onclick="enableEdit('customer_inn')"></i>
             <?php endif; ?>
             <input type="text" class="form-control form-control-sm edit-input" 
@@ -2206,7 +2197,7 @@ body.app-chat-open .app-chat-fab { display: none; }
     <div class="detail-value">
         <div class="editable-field" id="loan_type_field" data-field="loan_type">
             <span class="field-value"><?= htmlspecialchars($application['loan_type'] ?? '-') ?></span>
-            <?php if ($userRole === 'manager'): ?>
+            <?php if (finbuild_is_manager($userRole)): ?>
             <i class="bi bi-pencil edit-icon" onclick="enableEdit('loan_type')"></i>
             <?php endif; ?>
             <select class="form-select form-select-sm edit-input" id="loan_type_input">
@@ -2232,7 +2223,7 @@ body.app-chat-open .app-chat-fab { display: none; }
     <div class="detail-value">
         <div class="editable-field" id="amount_field" data-field="amount">
             <span class="field-value"><?= formatAmount($application['amount']) ?></span>
-            <?php if ($userRole === 'manager'): ?>
+            <?php if (finbuild_is_manager($userRole)): ?>
             <i class="bi bi-pencil edit-icon" onclick="enableEdit('amount')"></i>
             <?php endif; ?>
             <input type="number" class="form-control form-control-sm edit-input" 
@@ -2254,7 +2245,7 @@ body.app-chat-open .app-chat-fab { display: none; }
     <div class="detail-value">
         <div class="editable-field" id="term_field" data-field="term">
             <span class="field-value"><?= $application['term'] ? $application['term'] . ' мес.' : '-' ?></span>
-            <?php if ($userRole === 'manager'): ?>
+            <?php if (finbuild_is_manager($userRole)): ?>
             <i class="bi bi-pencil edit-icon" onclick="enableEdit('term')"></i>
             <?php endif; ?>
             <input type="number" class="form-control form-control-sm edit-input" 
@@ -2281,7 +2272,7 @@ body.app-chat-open .app-chat-fab { display: none; }
                 $db = trim((string)($application['declined_banks'] ?? ''));
                 echo $db !== '' ? nl2br(htmlspecialchars($db)) : '-';
             ?></span>
-            <?php if ($userRole === 'manager'): ?>
+            <?php if (finbuild_is_manager($userRole)): ?>
             <i class="bi bi-pencil edit-icon" onclick="enableEdit('declined_banks')"></i>
             <?php endif; ?>
             <textarea class="form-control form-control-sm edit-input" 
@@ -2306,7 +2297,7 @@ body.app-chat-open .app-chat-fab { display: none; }
                                 <div class="detail-value">
                                     <div class="editable-field" id="is_extension_field" data-field="is_extension">
                                         <span class="field-value"><?= !empty($application['is_extension']) ? 'Да' : 'Нет' ?></span>
-                                        <?php if ($userRole === 'manager'): ?>
+                                        <?php if (finbuild_is_manager($userRole)): ?>
                                         <i class="bi bi-pencil edit-icon" onclick="enableEdit('is_extension')"></i>
                                         <?php endif; ?>
                                         <select class="form-select form-select-sm edit-input" id="is_extension_input">
@@ -2332,7 +2323,7 @@ body.app-chat-open .app-chat-fab { display: none; }
                                 <div class="detail-value">
                                     <div class="editable-field" id="is_replacement_field" data-field="is_replacement">
                                         <span class="field-value"><?= !empty($application['is_replacement']) ? 'Да' : 'Нет' ?></span>
-                                        <?php if ($userRole === 'manager'): ?>
+                                        <?php if (finbuild_is_manager($userRole)): ?>
                                         <i class="bi bi-pencil edit-icon" onclick="enableEdit('is_replacement')"></i>
                                         <?php endif; ?>
                                         <select class="form-select form-select-sm edit-input" id="is_replacement_input">
@@ -2393,14 +2384,14 @@ body.app-chat-open .app-chat-fab { display: none; }
                                                     <div class="collateral-details-empty">Не применяется</div>
                                                 <?php endif; ?>
                                             </div>
-                                            <?php if ($userRole === 'manager'): ?>
+                                            <?php if (finbuild_is_manager($userRole)): ?>
                                             <button type="button" class="btn btn-sm btn-outline-primary collateral-edit-btn"
                                                     onclick="enableCollateralEdit('<?= $itemId ?>')">
                                                 <i class="bi bi-pencil me-1"></i>Изменить
                                             </button>
                                             <?php endif; ?>
                                         </div>
-                                        <?php if ($userRole === 'manager'): ?>
+                                        <?php if (finbuild_is_manager($userRole)): ?>
                                         <div class="collateral-edit-panel">
                                             <div class="form-check mb-2">
                                                 <input class="form-check-input collateral-edit-enabled" type="checkbox"
@@ -2447,7 +2438,7 @@ body.app-chat-open .app-chat-fab { display: none; }
                                     <span class="field-value <?= empty($application['comment']) ? 'comment-empty' : '' ?>">
                                         <?= empty($application['comment']) ? 'Комментарий не добавлен' : nl2br(htmlspecialchars($application['comment'])) ?>
                                     </span>
-                                    <?php if ($userRole === 'manager'): ?>
+                                    <?php if (finbuild_is_manager($userRole)): ?>
                                     <i class="bi bi-pencil edit-icon" onclick="enableEdit('comment')"></i>
                                     <?php endif; ?>
                                     <textarea class="form-control edit-input" id="comment_input" rows="3"><?= htmlspecialchars($application['comment'] ?? '') ?></textarea>
@@ -2460,7 +2451,7 @@ body.app-chat-open .app-chat-fab { display: none; }
                                         </button>
                                     </div>
                                 </div>
-                                <?php if ($userRole === 'manager' && empty($application['comment'])): ?>
+                                <?php if (finbuild_is_manager($userRole) && empty($application['comment'])): ?>
                                 <div class="comment-actions">
                                     <button type="button" class="btn btn-sm btn-outline-primary" onclick="enableEdit('comment')">
                                         <i class="bi bi-plus-circle me-1"></i> Добавить комментарий
@@ -2484,7 +2475,7 @@ body.app-chat-open .app-chat-fab { display: none; }
                                 <div class="detail-label">Телефон</div>
                                 <div class="detail-value"><?= htmlspecialchars($application['contact_phone'] ?? $application['phone'] ?? '-') ?></div>
                             </div>
-                            <?php if ($userRole === 'manager'): ?>
+                            <?php if (finbuild_is_manager($userRole)): ?>
                             <div class="detail-row">
                                 <div class="detail-label">Чья заявка</div>
                                 <div class="detail-value">
@@ -2526,7 +2517,7 @@ body.app-chat-open .app-chat-fab { display: none; }
                     
                     <div class="col-lg-4">
                         <!-- Быстрые действия для менеджеров -->
-                        <?php if ($userRole === 'manager'): ?>
+                        <?php if (finbuild_is_manager($userRole)): ?>
                         <div class="application-detail-card">
                             <h5 class="mb-3">Действия</h5>
                             <div class="d-grid gap-2">
@@ -2600,7 +2591,7 @@ body.app-chat-open .app-chat-fab { display: none; }
                 <p class="text-muted small mb-0 mt-1">Список для просмотра — переход в карточку продукта недоступен.</p>
             <?php endif; ?>
         </div>
-        <?php if (!empty($products) && $userRole === 'manager'): ?>
+        <?php if (!empty($products) && finbuild_is_manager($userRole)): ?>
             <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addProductModal">
                 <i class="bi bi-plus-lg me-2"></i>Добавить продукт
             </button>
@@ -2613,7 +2604,7 @@ body.app-chat-open .app-chat-fab { display: none; }
             <i class="bi bi-box display-1 text-muted opacity-25"></i>
             <h5 class="mt-3">Продукты не добавлены</h5>
             <p class="text-muted small">К этой заявке еще не добавлены банковские продукты</p>
-            <?php if ($userRole === 'manager'): ?>
+            <?php if (finbuild_is_manager($userRole)): ?>
                 <button type="button" class="btn btn-primary mt-3 text-nowrap" data-bs-toggle="modal" data-bs-target="#addProductModal" style="padding: 0.5rem 0.9rem; font-size: 0.95rem;">
                     <i class="bi bi-plus-circle me-2" style="font-size: 0.95rem;"></i>Добавить первый продукт
                 </button>
@@ -2661,7 +2652,7 @@ body.app-chat-open .app-chat-fab { display: none; }
                                 <a href="product_details.php?id=<?= $product['id'] ?>" class="btn btn-sm btn-outline-primary">
                                     Детали
                                 </a>
-                                <?php if ($userRole === 'manager'): ?>
+                                <?php if (finbuild_is_manager($userRole)): ?>
                                     <button type="button" class="btn btn-sm btn-outline-danger delete-product-btn"
                                             data-product-id="<?= $product['id'] ?>"
                                             data-product-name="<?= htmlspecialchars($product['product_name']) ?>"
@@ -2747,7 +2738,7 @@ body.app-chat-open .app-chat-fab { display: none; }
                                             Детали
                                         </a>
 
-                                        <?php if ($userRole === 'manager'): ?>
+                                        <?php if (finbuild_is_manager($userRole)): ?>
                                             <button type="button" class="btn btn-sm btn-outline-danger btn-icon rounded-circle delete-product-btn" 
                                                     style="width: 32px; height: 32px; padding: 0;"
                                                     data-product-id="<?= $product['id'] ?>"
@@ -2875,7 +2866,7 @@ body.app-chat-open .app-chat-fab { display: none; }
                                         <a href="<?= htmlspecialchars(finbuild_upload_file_url('app_doc', (int) $doc['id'])) ?>" class="btn btn-outline-secondary btn-sm" target="_blank">
                                             <i class="bi bi-eye"></i>
                                         </a>
-                                        <?php if ($userRole === 'manager'): ?>
+                                        <?php if (finbuild_is_manager($userRole)): ?>
                                         <button type="button" class="btn btn-outline-danger btn-sm" 
                                                 onclick="deleteDocument(<?= $doc['id'] ?>)">
                                             <i class="bi bi-trash"></i>
@@ -2900,13 +2891,13 @@ body.app-chat-open .app-chat-fab { display: none; }
 </div>
 
 <!-- Вкладка аналитики -->
-<?php if ($userRole === 'manager'): ?>
+<?php if (finbuild_is_manager($userRole)): ?>
 <div class="tab-pane fade" id="analytics" role="tabpanel">
     <?php require __DIR__ . '/includes/partials/company_analytics_tab.php'; ?>
 </div>
 <?php endif; ?>
 
-<?php if ($userRole === 'manager' || $isAnalystView): ?>
+<?php if (finbuild_is_manager($userRole) || $isAnalystView): ?>
 <!-- Вкладка «Структура» -->
 <div class="tab-pane fade" id="structure" role="tabpanel">
     <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-2 mb-4">
@@ -4449,7 +4440,7 @@ function autoFetchCustomerName() {
         .catch(() => {});
 }
 
-<?php if (($application['product_type'] ?? '') === 'bg' && ($userRole ?? '') === 'manager'): ?>
+<?php if (($application['product_type'] ?? '') === 'bg' && finbuild_is_manager((string)($userRole ?? ''))): ?>
 function runFillPurchaseFromChecko() {
     const inp = document.getElementById('purchase_number_input');
     const btn = document.getElementById('fetchPurchaseContractDetailsBtn');
@@ -4577,7 +4568,7 @@ document.addEventListener('focusout', function(e) {
 }, true);
 <?php endif; ?>
 
-<?php if ($userRole === 'manager'): ?>
+<?php if (finbuild_is_manager($userRole)): ?>
 document.addEventListener('DOMContentLoaded', function() {
     if (typeof initCompanyAnalytics === 'function') {
         initCompanyAnalytics({

@@ -91,7 +91,8 @@ function finbuild_sync_session_user(): bool
     $_SESSION['email'] = (string) $user['email'];
     $_SESSION['role'] = (string) $user['role'];
     $_SESSION['is_analyst'] = (int) ($user['is_analyst'] ?? 0);
-    $_SESSION['is_submanager'] = (int) ($user['is_submanager'] ?? 0);
+    // Совместимость: раньше флаг is_submanager, теперь роль case_manager
+    $_SESSION['is_submanager'] = ((string) $user['role'] === 'case_manager') ? 1 : 0;
     $_SESSION['first_name'] = (string) $user['first_name'];
     $_SESSION['last_name'] = (string) $user['last_name'];
     return true;
@@ -209,8 +210,8 @@ function getApplicationsWithUnreadMessagesCount(): int {
     $userId = (int) $_SESSION['user_id'];
     $userRole = $_SESSION['role'] ?? 'client';
 
-    if ($userRole === 'manager' && finbuild_is_submanager()) {
-        // Ограниченный менеджер: только заявки, где он ответственный
+    if (finbuild_is_case_manager()) {
+        // Менеджер по заявкам: только заявки, где он ответственный
         $sql = "
             SELECT COUNT(DISTINCT a.id) AS unread_count
             FROM application_product_chats apc
@@ -220,8 +221,8 @@ function getApplicationsWithUnreadMessagesCount(): int {
         ";
         $stmt = $pdo->prepare($sql);
         $stmt->execute([$userId]);
-    } elseif ($userRole === 'manager') {
-        // Руководитель: непрочитанными считаем только сообщения от владельца заявки (клиента/партнёра)
+    } elseif (finbuild_is_manager($userRole)) {
+        // Director / manager: непрочитанными считаем только сообщения от владельца заявки
         $sql = "
             SELECT COUNT(DISTINCT a.id) AS unread_count
             FROM application_product_chats apc

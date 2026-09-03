@@ -3,7 +3,7 @@ require_once 'config.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
-if (!isset($_SESSION['user_id']) || ($_SESSION['role'] ?? '') !== 'manager') {
+if (!isset($_SESSION['user_id']) || !finbuild_is_manager((string) ($_SESSION['role'] ?? ''))) {
     echo json_encode(['success' => false, 'error' => 'Доступ запрещен']);
     exit;
 }

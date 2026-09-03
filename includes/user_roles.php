@@ -1,15 +1,71 @@
 <?php
 /**
- * Роли и проверки доступа (в т.ч. аналитик и партнёр+аналитик).
+ * Роли и проверки доступа.
+ *
+ * Сотрудники:
+ *   director     — руководитель
+ *   manager      — менеджер (полный доступ, без статистики)
+ *   case_manager — менеджер по заявкам (только назначенные)
  */
 declare(strict_types=1);
 
-/** Пользователи, которым в интерфейсе показывается плашка «Руководитель». */
-const FINBUILD_DIRECTOR_USER_IDS = [1, 23];
+require_once __DIR__ . '/access_control.php';
 
+/** @return list<string> */
+function finbuild_manager_family_roles(): array
+{
+    return ['director', 'manager', 'case_manager'];
+}
+
+function finbuild_manager_roles_sql_in(): string
+{
+    return "'director','manager','case_manager'";
+}
+
+function finbuild_user_role(?array $user = null): string
+{
+    if ($user === null) {
+        return (string) ($_SESSION['role'] ?? 'client');
+    }
+    return (string) ($user['role'] ?? 'client');
+}
+
+/** Любая «менеджерская» роль: director | manager | case_manager. */
 function finbuild_is_manager(string $role): bool
 {
-    return $role === 'manager';
+    return in_array($role, finbuild_manager_family_roles(), true);
+}
+
+function finbuild_is_director(?array $user = null): bool
+{
+    return finbuild_user_role($user) === 'director';
+}
+
+/** Менеджер по заявкам (бывший submanager). */
+function finbuild_is_case_manager(?array $user = null): bool
+{
+    return finbuild_user_role($user) === 'case_manager';
+}
+
+/**
+ * Полный доступ сотрудника к «всем заявкам» (director/manager по умолчанию).
+ * Учитывает матрицу прав: applications.view_all.
+ */
+function finbuild_has_full_manager_access(?array $user = null): bool
+{
+    $role = finbuild_user_role($user);
+    if (!in_array($role, ['director', 'manager'], true)) {
+        return false;
+    }
+    return finbuild_can('applications.view_all', $user);
+}
+
+/**
+ * @deprecated Используйте finbuild_is_case_manager()
+ */
+function finbuild_is_submanager(?array $user = null): bool
+{
+    return finbuild_is_case_manager($user);
 }
 
 /** Основная роль «аналитик» (не партнёр с флагом). */
@@ -27,27 +83,6 @@ function finbuild_is_analyst(string $role): bool
 function finbuild_user_is_analyst_flag(?array $user): bool
 {
     return !empty($user['is_analyst']);
-}
-
-/**
- * Ограниченный менеджер: основная роль manager + is_submanager=1.
- * «Руководитель» — это manager без этого флага (полный доступ).
- */
-function finbuild_is_submanager(?array $user = null): bool
-{
-    if ($user === null) {
-        return ((string) ($_SESSION['role'] ?? '') === 'manager') && !empty($_SESSION['is_submanager']);
-    }
-    return (((string) ($user['role'] ?? '')) === 'manager') && !empty($user['is_submanager']);
-}
-
-/** Руководитель: role=manager без флага ограничения (полный доступ). */
-function finbuild_is_director(?array $user = null): bool
-{
-    if ($user === null) {
-        return ((string) ($_SESSION['role'] ?? '') === 'manager') && empty($_SESSION['is_submanager']);
-    }
-    return (((string) ($user['role'] ?? '')) === 'manager') && empty($user['is_submanager']);
 }
 
 /** Чистый аналитик: role=analyst, без гибрида с партнёром. */
@@ -98,10 +133,14 @@ function finbuild_is_applications_analyst_scope(?array $user = null): bool
     return false;
 }
 
-/** Менеджер, чистый аналитик или партнёр в scope=all. */
-function finbuild_sees_all_applications(string $role, bool $analystScope = false): bool
+/** Director/manager, чистый аналитик или партнёр в scope=all. */
+function finbuild_sees_all_applications(string $role, bool $analystScope = false, ?array $user = null): bool
 {
-    if (finbuild_is_manager($role)) {
+    if ($user !== null) {
+        if (finbuild_has_full_manager_access($user)) {
+            return true;
+        }
+    } elseif ($role === 'director' || $role === 'manager') {
         return true;
     }
     if (finbuild_is_analyst_role($role)) {
@@ -112,11 +151,12 @@ function finbuild_sees_all_applications(string $role, bool $analystScope = false
 
 function finbuild_can_edit_application_structure(string $role, bool $analystFlag = false, ?array $user = null): bool
 {
-    if (finbuild_is_analyst_role($role) || $analystFlag) {
+    $user = $user ?? ['role' => $role, 'is_analyst' => $analystFlag ? 1 : 0];
+    if (finbuild_can('structure.edit', $user)) {
         return true;
     }
-    if (finbuild_is_manager($role)) {
-        return finbuild_is_director($user);
+    if ($analystFlag && finbuild_can('structure.edit', ['role' => 'analyst', 'is_analyst' => 0])) {
+        return $role === 'partner' || finbuild_is_analyst_role($role);
     }
     return false;
 }
@@ -150,7 +190,7 @@ function finbuild_enforce_analyst_page_access(string $role, string $currentPage)
 
 /**
  * Доступ к карточке заявки.
- * Партнёр с is_analyst может открыть любую (режим анализа на чужих).
+ * Без applications.view_all — только свои / назначенные (для staff) или свои (для client/partner).
  */
 function finbuild_can_access_application(
     PDO $pdo,
@@ -159,11 +199,22 @@ function finbuild_can_access_application(
     int $userId,
     bool $isAnalystFlag = false
 ): bool {
-    if (finbuild_is_manager($role) || finbuild_is_analyst_role($role) || $isAnalystFlag) {
+    $user = ['role' => $role, 'is_analyst' => $isAnalystFlag ? 1 : 0, 'id' => $userId];
+
+    if (finbuild_can('applications.view_all', $user)) {
         $stmt = $pdo->prepare('SELECT id FROM applications WHERE id = ? LIMIT 1');
         $stmt->execute([$applicationId]);
         return (bool) $stmt->fetchColumn();
     }
+
+    if (finbuild_is_manager($role)) {
+        $stmt = $pdo->prepare(
+            'SELECT id FROM applications WHERE id = ? AND (created_by = ? OR assigned_to = ?) LIMIT 1'
+        );
+        $stmt->execute([$applicationId, $userId, $userId]);
+        return (bool) $stmt->fetchColumn();
+    }
+
     $stmt = $pdo->prepare('SELECT created_by FROM applications WHERE id = ? LIMIT 1');
     $stmt->execute([$applicationId]);
     $createdBy = $stmt->fetchColumn();
@@ -223,14 +274,14 @@ function finbuild_role_display_name(?array $user): string
     if ($role === 'partner' && finbuild_user_is_analyst_flag($user)) {
         return 'Партнёр, аналитик';
     }
-    if ($role === 'manager') {
-        // Плашку «Руководитель» показываем только для конкретных пользователей (id 1 и 23),
-        // остальные сотрудники с ролью manager отображаются как «Менеджер».
-        return in_array((int) ($user['id'] ?? 0), FINBUILD_DIRECTOR_USER_IDS, true)
-            ? 'Руководитель'
-            : 'Менеджер';
+    $cfg = finbuild_access_config();
+    if (!empty($cfg['roles'][$role]['label'])) {
+        return (string) $cfg['roles'][$role]['label'];
     }
     $map = [
+        'director' => 'Руководитель',
+        'manager' => 'Менеджер',
+        'case_manager' => 'Менеджер по заявкам',
         'partner' => 'Партнер',
         'client' => 'Клиент',
         'bank' => 'Банк',

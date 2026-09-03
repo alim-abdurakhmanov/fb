@@ -1,6 +1,6 @@
 <?php
 /**
- * Дорожная карта заявки — чек-листы для руководителей (manager без is_submanager).
+ * Дорожная карта заявки — для director и manager (не case_manager).
  */
 declare(strict_types=1);
 
@@ -83,7 +83,7 @@ function finbuild_roadmap_updated_by_ready(PDO $pdo): bool
 
 function finbuild_roadmap_can_access(?array $user): bool
 {
-    return finbuild_is_director($user);
+    return finbuild_can('roadmap.edit', $user);
 }
 
 function finbuild_roadmap_assert_application(PDO $pdo, int $applicationId): bool

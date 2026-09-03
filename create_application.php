@@ -7,11 +7,11 @@ checkAuth();
 $pdo = getPDO();
 $current_user_id = $_SESSION['user_id'];
 $user_role = $_SESSION['role'] ?? 'client';
-$isSubmanager = finbuild_is_submanager(); // Менеджер: без выбора клиента и ответственного — он сам
+$isSubmanager = finbuild_is_case_manager(); // Без выбора клиента и ответственного — он сам
 $usersList = [];
 $managersList = [];
 
-if ($user_role === 'manager') {
+if (finbuild_is_manager($user_role)) {
     $stmtUsers = $pdo->prepare("
         SELECT id, first_name, last_name, company_name, inn, role, phone 
         FROM users 
@@ -25,7 +25,7 @@ if ($user_role === 'manager') {
     $stmtManagers = $pdo->prepare("
         SELECT id, first_name, last_name 
         FROM users 
-        WHERE role = 'manager' AND is_active = 1
+        WHERE role IN (" . finbuild_manager_roles_sql_in() . ") AND is_active = 1
         ORDER BY last_name ASC, first_name ASC
     ");
     $stmtManagers->execute();
@@ -45,7 +45,7 @@ if ($userRole === 'client') {
     $stmtInn->execute([$current_user_id]);
     $currentUserInn = (string)($stmtInn->fetchColumn() ?: '');
 }
-// if ($userRole === 'manager') {
+// if (finbuild_is_manager($userRole)) {
 //     header('Location: applications.php');
 //     exit();
 // }
@@ -133,25 +133,25 @@ if ($product_type === 'bg') {
         $created_by = $_SESSION['user_id']; // По дефолту - текущий
         $added_by = null;
 
-        // Для руководителя выбор клиента/партнёра обязателен
-        if ($user_role === 'manager' && !$isSubmanager) {
+        // Для director/manager выбор клиента/партнёра обязателен
+        if (finbuild_has_full_manager_access()) {
             $target_user_id_raw = trim((string)($_POST['target_user_id'] ?? ''));
             if ($target_user_id_raw === '') {
                 throw new Exception("Выберите клиента или партнёра");
             }
             $created_by = (int)$_POST['target_user_id']; // Владелец = выбранный клиент/партнёр
-            $added_by = $_SESSION['user_id'];           // Добавил = Руководитель
+            $added_by = $_SESSION['user_id'];           // Добавил = сотрудник
         } elseif ($isSubmanager) {
-            // Ограниченный менеджер: владелец и автор — он сам (без выбора клиента)
+            // Менеджер по заявкам: владелец и автор — он сам (без выбора клиента)
             $created_by = (int) $current_user_id;
             $added_by = (int) $current_user_id;
         }
 
-        // Ответственный: только для менеджеров; по умолчанию — текущий пользователь
+        // Ответственный: только для менеджерских ролей; по умолчанию — текущий пользователь
         $assigned_to = null;
-        if ($user_role === 'manager') {
+        if (finbuild_is_manager($user_role)) {
             if ($isSubmanager) {
-                $assigned_to = (int) $current_user_id; // менеджер всегда ответственный по своим заявкам
+                $assigned_to = (int) $current_user_id; // всегда ответственный по своим заявкам
             } else {
                 $assigned_to = !empty($_POST['assigned_to']) ? (int)$_POST['assigned_to'] : $current_user_id;
             }
@@ -573,7 +573,7 @@ require_once 'header.php';
         <?php endif; ?>
            <form method="POST" id="applicationForm" enctype="multipart/form-data" novalidate>
           <!-- === БЛОК ВЫБОРА ПОЛЬЗОВАТЕЛЯ (Только для руководителя; ограниченный менеджер ставится сам) === -->
-    <?php if ($user_role === 'manager' && !$isSubmanager): ?>
+    <?php if (finbuild_has_full_manager_access()): ?>
     <div class="application-form-section">
         <h4 class="section-title">Владелец заявки</h4>
         
@@ -702,7 +702,7 @@ require_once 'header.php';
                 <div class="row">
                     <div class="col-md-6 mb-3">
                         <label class="form-label required-field">Тип продукта</label>
-                        <?php if ($userRole === 'manager'): ?>
+                        <?php if (finbuild_is_manager($userRole)): ?>
                             <select class="form-select" id="productType" name="product_type">
                                 <option value="bg" selected>Банковская гарантия</option>
                                 <option value="credit">Кредит</option>
@@ -782,7 +782,7 @@ require_once 'header.php';
                     <div class="col-md-6 mb-3">
                         <label class="form-label">Контактное лицо</label>
                         <input type="text" class="form-control" name="contact_name" 
-                               value="<?= ($user_role !== 'manager') ? htmlspecialchars(($currentUser['first_name'] ?? '') . ' ' . ($currentUser['last_name'] ?? '')) : '' ?>"
+                               value="<?= (!finbuild_is_manager($user_role)) ? htmlspecialchars(($currentUser['first_name'] ?? '') . ' ' . ($currentUser['last_name'] ?? '')) : '' ?>"
                                placeholder="ФИО контактного лица">
                     </div>
                     
@@ -791,7 +791,7 @@ require_once 'header.php';
     <?php 
     // Вычисляем значение заранее, чтобы не путаться в HTML
     $phoneValue = '';
-    if ($user_role !== 'manager') {
+    if (!finbuild_is_manager($user_role)) {
         $phoneValue = $currentUser['phone'] ?? '';
     }
     // Если была ошибка валидации и форма вернулась, сохраняем введенное

@@ -50,8 +50,10 @@ if (!$meta) {
 
 $applicationId = (int)$meta['application_id'];
 $applicationOwnerId = (int)$meta['application_owner_id'];
+$currentUser = getCurrentUser() ?: ['role' => $userRole, 'id' => $userId];
+$userIsAnalystFlag = finbuild_user_is_analyst_flag($currentUser);
 
-if ($userRole !== 'manager' && $applicationOwnerId !== $userId) {
+if (!finbuild_can_access_application($pdo, $applicationId, $userRole, $userId, $userIsAnalystFlag)) {
     finbuild_chat_fail(403, 'Нет доступа');
 }
 
@@ -65,7 +67,7 @@ function finbuild_chat_compute_unread_counts(PDO $pdo, int $applicationId, strin
     $unreadCounts = [];
     $totalUnread = 0;
     foreach ($productIds as $pid) {
-        if ($userRole === 'manager') {
+        if (finbuild_is_manager($userRole)) {
             $stmtUnread = $pdo->prepare(
                 "SELECT COUNT(*) as unread_count
                  FROM application_product_chats
@@ -99,7 +101,7 @@ if ($action === 'counts') {
 
 // Пометка прочитанными без перезагрузки ленты (когда пользователь доскроллил до низа).
 if ($action === 'mark_read') {
-    if ($userRole === 'manager') {
+    if (finbuild_is_manager($userRole)) {
         $stmtRead = $pdo->prepare(
             "UPDATE application_product_chats
              SET is_read = 1
@@ -233,7 +235,7 @@ if ($action === 'send') {
 }
 
 if ($shouldMarkRead) {
-    if ($userRole === 'manager') {
+    if (finbuild_is_manager($userRole)) {
         $stmtRead = $pdo->prepare(
             "UPDATE application_product_chats
              SET is_read = 1

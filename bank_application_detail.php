@@ -41,7 +41,7 @@ $application = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
 
 $assignedManagerName = '—';
 if (!empty($application['assigned_to'])) {
-    $sm = $pdo->prepare("SELECT first_name, last_name FROM users WHERE id = ? AND role = 'manager'");
+    $sm = $pdo->prepare('SELECT first_name, last_name FROM users WHERE id = ? AND role IN (' . finbuild_manager_roles_sql_in() . ')');
     $sm->execute([(int) $application['assigned_to']]);
     $mgr = $sm->fetch(PDO::FETCH_ASSOC);
     if ($mgr) {

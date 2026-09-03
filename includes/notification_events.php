@@ -253,7 +253,7 @@ function notify_product_chat_message(
     $productLink = $base !== '' ? $base . '/product_details.php?id=' . $applicationProductId : '';
     $productLabel = $bankName !== '' ? htmlspecialchars($bankName) : '';
 
-    if ($senderRole === 'manager') {
+    if (finbuild_is_manager($senderRole)) {
         if ($ownerId <= 0 || $ownerId === $senderUserId) {
             return;
         }
@@ -365,7 +365,7 @@ function notify_product_document_uploaded(PDO $pdo, int $documentId, int $upload
     $base = finbuild_site_base_url();
     $link = $base !== '' ? $base . '/product_details.php?id=' . $productId : '';
 
-    $uploaderIsManager = ($role === 'manager');
+    $uploaderIsManager = finbuild_is_manager($role);
     // Ответственный загрузил сам — менеджерам не пишем (в т.ч. не дублируем fallback про «сотрудник загрузил»)
     $responsibleUploadedSelf = $uploaderIsManager && $assignedTo > 0 && $uploaderUserId === $assignedTo;
 
@@ -603,7 +603,7 @@ function notify_bank_case_chat_message(
     $productLabel = $bankName !== '' ? htmlspecialchars($bankName) : 'продукта';
     $base = finbuild_site_base_url();
 
-    if ($senderRole === 'manager') {
+    if (finbuild_is_manager($senderRole)) {
         $recipients = finbuild_bank_portal_notification_emails($pdo, (string) ($row['bank_code'] ?? ''));
         if ($recipients === []) {
             return;

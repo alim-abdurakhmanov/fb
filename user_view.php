@@ -7,7 +7,7 @@ $pdo = getPDO();
 // Проверка доступа
 checkAuth();
 $currentUser = getCurrentUser();
-if ($currentUser['role'] !== 'manager' || finbuild_is_submanager($currentUser)) {
+if (!finbuild_can('admin.users', $currentUser)) {
     header('Location: index.php');
     exit();
 }
@@ -47,10 +47,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $phone = trim($_POST['phone'] ?? '');
         $company_name = trim($_POST['company_name'] ?? '');
         // Роль менеджера через эту форму не понижаем (manager не входит в список опций)
-        $isManagerTarget = ($user['role'] === 'manager');
+        $isCaseManagerTarget = ($user['role'] === 'case_manager');
         $role = $_POST['role'] ?? 'client';
-        if ($isManagerTarget) {
-            $role = 'manager';
+        if ($isCaseManagerTarget) {
+            $role = 'case_manager';
         } elseif (!in_array($role, ['client', 'partner'], true)) {
             $role = 'client';
         }
@@ -60,9 +60,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $profileError = '';
         if (empty($first_name) || empty($last_name)) {
             $profileError = "Имя и Фамилия обязательны";
-        } elseif ($role === 'partner' || $role === 'manager') {
+        } elseif ($role === 'partner' || $role === 'case_manager') {
             $inn = '';
-            if ($role === 'manager') {
+            if ($role === 'case_manager') {
                 $company_name = '';
             }
         } else {
@@ -316,7 +316,7 @@ require_once 'header.php';
                     <div>
                         <h1 class="h3 mb-0"><?= htmlspecialchars($user['first_name'] . ' ' . $user['last_name']) ?></h1>
                         <p class="text-muted mb-0"><?= htmlspecialchars($user['email']) ?></p>
-                        <?php if ($user['role'] !== 'manager' && (!empty($user['company_name']) || !empty($user['inn']))): ?>
+                        <?php if (!finbuild_is_manager((string)($user['role'] ?? '')) && (!empty($user['company_name']) || !empty($user['inn']))): ?>
                             <div class="small text-muted">
                                 <?php if (!empty($user['company_name'])): ?>
                                     <?= htmlspecialchars($user['company_name']) ?>
@@ -378,7 +378,7 @@ require_once 'header.php';
                         </div>
                     </div>
 
-                    <?php if ($user['role'] !== 'manager'): ?>
+                    <?php if (!finbuild_is_manager((string)($user['role'] ?? ''))): ?>
                     <div class="mb-3" id="editInnWrapper">
                         <label class="form-label small text-muted">ИНН</label>
                         <input type="text" name="inn" id="editInn" class="form-control" maxlength="12" required value="<?= htmlspecialchars($user['inn'] ?? '') ?>">
@@ -395,7 +395,7 @@ require_once 'header.php';
                         </div>
                     </div>
 
-                    <?php if ($user['role'] !== 'manager'): ?>
+                    <?php if (!finbuild_is_manager((string)($user['role'] ?? ''))): ?>
                     <div class="mb-3">
                         <label class="form-label small text-muted">Компания</label>
                         <input type="text" name="company_name" id="editCompanyName" class="form-control" value="<?= htmlspecialchars($user['company_name'] ?? '') ?>">
@@ -409,11 +409,11 @@ require_once 'header.php';
 
                     <div class="mb-4">
                         <label class="form-label small text-muted">Роль</label>
-                        <?php if ($user['role'] === 'manager'): ?>
+                        <?php if ($user['role'] === 'case_manager'): ?>
                         <select name="role" id="editRole" class="form-select" disabled>
-                            <option value="manager" selected>Менеджер</option>
+                            <option value="case_manager" selected>Менеджер по заявкам</option>
                         </select>
-                        <div class="form-text small">Роль менеджера меняется только через БД.</div>
+                        <div class="form-text small">Роль менеджера по заявкам меняется только через БД.</div>
                         <?php else: ?>
                         <select name="role" id="editRole" class="form-select">
                             <option value="client" <?= $user['role'] === 'client' ? 'selected' : '' ?>>Клиент</option>

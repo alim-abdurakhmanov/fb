@@ -3,7 +3,7 @@ require_once 'config.php';
 
 header('Content-Type: text/html; charset=utf-8');
 
-if (!isset($_SESSION['user_id']) || ($_SESSION['role'] ?? 'client') !== 'manager') {
+if (!isset($_SESSION['user_id']) || !finbuild_is_manager((string) ($_SESSION['role'] ?? 'client'))) {
     echo '<div class="alert alert-danger">Доступ запрещен</div>';
     exit;
 }

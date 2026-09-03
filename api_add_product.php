@@ -13,7 +13,7 @@ if (!isset($_SESSION['user_id'])) {
 
 // Проверяем роль
 $userRole = $_SESSION['role'] ?? 'client';
-if ($userRole !== 'manager') {
+if (!finbuild_is_manager($userRole)) {
     echo json_encode(['success' => false, 'error' => 'Доступ запрещен: только для менеджеров']);
     exit;
 }

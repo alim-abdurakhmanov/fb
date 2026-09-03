@@ -4,8 +4,7 @@ require_once 'config.php';
 checkAuth();
 $currentUser = getCurrentUser();
 
-if (($currentUser['role'] ?? '') !== 'manager'
-    || !in_array((int) ($currentUser['id'] ?? 0), FINBUILD_DIRECTOR_USER_IDS, true)) {
+if (!finbuild_can('stats.monthly', $currentUser)) {
     header('Location: index.php');
     exit();
 }

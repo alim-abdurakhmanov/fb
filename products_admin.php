@@ -3,7 +3,7 @@ $current_page = 'products_admin';
 require_once 'config.php';
 checkAuth();
 
-if (($_SESSION['role'] ?? '') !== 'manager' || finbuild_is_submanager()) {
+if (!finbuild_can('admin.products')) {
     header('Location: index.php');
     exit;
 }

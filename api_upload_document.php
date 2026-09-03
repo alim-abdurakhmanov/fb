@@ -40,7 +40,7 @@ try {
     $userRole = $_SESSION['role'] ?? 'client';
     $userId = $_SESSION['user_id'];
     
-    if ($userRole !== 'manager' && $application['created_by'] != $userId) {
+    if (!finbuild_is_manager($userRole) && $application['created_by'] != $userId) {
         echo json_encode(['success' => false, 'error' => 'Доступ запрещен']);
         exit;
     }
