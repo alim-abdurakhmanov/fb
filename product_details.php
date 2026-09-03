@@ -65,18 +65,13 @@ if (!finbuild_can_access_application(
     exit();
 }
 
-$canUseProductChat = finbuild_can_use_product_chat($currentUser);
-$chatThread = finbuild_chat_normalize_thread(
-    (string) (finbuild_chat_thread_for_viewer($currentUser, $productApp) ?? 'principal')
-);
-if (finbuild_is_manager($userRole)) {
-    $reqThread = finbuild_chat_normalize_thread((string) ($_GET['chat_thread'] ?? $_POST['chat_thread'] ?? 'principal'));
-    $allowedChatThreads = finbuild_chat_allowed_threads_for_viewer($currentUser, $productApp);
-    $chatThread = in_array($reqThread, $allowedChatThreads, true) ? $reqThread : $allowedChatThreads[0];
-} else {
-    $allowedChatThreads = finbuild_chat_allowed_threads_for_viewer($currentUser, $productApp);
-    if (!in_array($chatThread, $allowedChatThreads, true)) {
-        $chatThread = $allowedChatThreads[0];
+$canUseProductChat = finbuild_can_use_product_chat($currentUser) && $userRole !== 'beneficiary';
+$chatThread = 'principal';
+$allowedChatThreads = ['principal'];
+if ($canUseProductChat && finbuild_is_manager($userRole)) {
+    $allowedAppThreads = finbuild_chat_allowed_threads_for_viewer($currentUser, $productApp);
+    if (!in_array('principal', $allowedAppThreads, true)) {
+        $canUseProductChat = false;
     }
 }
 
@@ -218,27 +213,28 @@ foreach ($messages as $message) {
 }
 }
 
-// Помечаем сообщения как прочитанные (для менеджера — только от владельца заявки)
+// Помечаем сообщения как прочитанные
 $totalUnreadMessages = 0;
 if ($canUseProductChat) {
 if (finbuild_is_manager($userRole)) {
     $stmt = $pdo->prepare("
-        UPDATE application_product_chats 
-        SET is_read = 1 
-        WHERE application_product_id = ? AND user_id = ? AND is_read = 0
+        UPDATE application_product_chats c
+        INNER JOIN users u ON u.id = c.user_id
+        SET c.is_read = 1 
+        WHERE c.application_product_id = ? AND c.thread = 'principal'
+          AND c.is_read = 0 AND u.role IN ('client', 'partner')
     ");
-    $stmt->execute([$productAppId, $productApp['application_creator']]);
+    $stmt->execute([$productAppId]);
 } else {
     $stmt = $pdo->prepare("
         UPDATE application_product_chats 
         SET is_read = 1 
-        WHERE application_product_id = ? AND user_id != ? AND is_read = 0
+        WHERE application_product_id = ? AND thread = 'principal' AND user_id != ? AND is_read = 0
     ");
     $stmt->execute([$productAppId, $userId]);
 }
 
 // Получаем общее количество непрочитанных сообщений по всем продуктам заявки
-// Для менеджеров — только сообщения от владельца заявки (a.created_by)
 if (finbuild_is_manager($userRole)) {
     $stmtUnreadTotal = $pdo->prepare("
         SELECT COUNT(DISTINCT apc.id) as total_unread
@@ -246,8 +242,9 @@ if (finbuild_is_manager($userRole)) {
         INNER JOIN applications a ON ap.application_id = a.id
         LEFT JOIN application_product_chats apc ON apc.application_product_id = ap.id 
             AND apc.is_read = 0 
-            AND apc.user_id = a.created_by
-        WHERE ap.application_id = ?
+            AND apc.thread = 'principal'
+        LEFT JOIN users u ON u.id = apc.user_id AND u.role IN ('client', 'partner')
+        WHERE ap.application_id = ? AND u.id IS NOT NULL
     ");
     $stmtUnreadTotal->execute([$productApp['application_id']]);
 } else {
@@ -256,6 +253,7 @@ if (finbuild_is_manager($userRole)) {
         FROM application_products ap
         LEFT JOIN application_product_chats apc ON apc.application_product_id = ap.id 
             AND apc.is_read = 0 
+            AND apc.thread = 'principal'
             AND apc.user_id != ?
         WHERE ap.application_id = ?
     ");
@@ -1032,20 +1030,6 @@ function getProductTypeText($productType) {
                     <i class="bi bi-chat-dots me-2"></i>Чат по продукту
                 </h5>
                 <div class="d-flex align-items-center gap-2">
-                    <?php if (finbuild_is_manager($userRole) && count($allowedChatThreads) > 1): ?>
-                        <div class="btn-group btn-group-sm" role="group">
-                            <?php if (in_array('beneficiary', $allowedChatThreads, true)): ?>
-                                <a href="product_details.php?id=<?= (int)$productAppId ?>&tab=details&chat_thread=beneficiary"
-                                   class="btn btn-outline-secondary <?= $chatThread === 'beneficiary' ? 'active' : '' ?>">С заказчиком</a>
-                            <?php endif; ?>
-                            <?php if (in_array('principal', $allowedChatThreads, true)): ?>
-                                <a href="product_details.php?id=<?= (int)$productAppId ?>&tab=details&chat_thread=principal"
-                                   class="btn btn-outline-secondary <?= $chatThread === 'principal' ? 'active' : '' ?>">С клиентом</a>
-                            <?php endif; ?>
-                        </div>
-                    <?php elseif ($chatThread === 'beneficiary'): ?>
-                        <span class="badge bg-warning text-dark">Чат с менеджером</span>
-                    <?php endif; ?>
                 <button type="button" class="btn btn-sm btn-light d-md-none chat-close" id="chatClose">
                     <i class="bi bi-x-lg"></i>
                 </button>

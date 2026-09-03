@@ -1,6 +1,8 @@
 <?php 
 $current_page = 'dashboard';
 require_once 'header.php';
+require_once __DIR__ . '/includes/chat_helpers.php';
+require_once __DIR__ . '/includes/beneficiary_intake.php';
 
 $pdo = getPDO();
 $userRole = $_SESSION['role'] ?? 'client';
@@ -46,17 +48,18 @@ if (finbuild_has_full_manager_access()) {
     $stmt->execute([$userId]);
     $completedApplications = $stmt->fetch()['total'];
 } else {
-    $stmt = $pdo->prepare("SELECT COUNT(*) as total FROM applications WHERE created_by = ?");
-    $stmt->execute([$userId]);
+    $scopeSql = '(created_by = ? OR principal_user_id = ?)';
+    $stmt = $pdo->prepare("SELECT COUNT(*) as total FROM applications WHERE $scopeSql");
+    $stmt->execute([$userId, $userId]);
     $totalApplications = $stmt->fetch()['total'];
-    $stmt = $pdo->prepare("SELECT COUNT(*) as total FROM applications WHERE created_by = ? AND status = 'new'");
-    $stmt->execute([$userId]);
+    $stmt = $pdo->prepare("SELECT COUNT(*) as total FROM applications WHERE $scopeSql AND status = 'new'");
+    $stmt->execute([$userId, $userId]);
     $newApplications = $stmt->fetch()['total'];
-    $stmt = $pdo->prepare("SELECT COUNT(*) as total FROM applications WHERE created_by = ? AND status IN ('in_progress','pending_signing','product_request','terms_negotiation','pending_release')");
-    $stmt->execute([$userId]);
+    $stmt = $pdo->prepare("SELECT COUNT(*) as total FROM applications WHERE $scopeSql AND status IN ('in_progress','pending_signing','product_request','terms_negotiation','pending_release')");
+    $stmt->execute([$userId, $userId]);
     $inProgressApplications = $stmt->fetch()['total'];
-    $stmt = $pdo->prepare("SELECT COUNT(*) as total FROM applications WHERE created_by = ? AND status = 'completed'");
-    $stmt->execute([$userId]);
+    $stmt = $pdo->prepare("SELECT COUNT(*) as total FROM applications WHERE $scopeSql AND status = 'completed'");
+    $stmt->execute([$userId, $userId]);
     $completedApplications = $stmt->fetch()['total'];
 }
 
@@ -66,26 +69,26 @@ $dashboardAppsWithUnread = [];
 $dashboardNewForManager = [];
 $dashboardRecentActive = [];
 
+$unreadUnionSql = finbuild_unread_chat_union_sql();
+$unreadJoinCondition = finbuild_unread_chat_join_condition((string) $userRole);
+
 if (finbuild_can_use_product_chat($currentUser) && finbuild_has_full_manager_access()) {
     $stmt = $pdo->query("
-        SELECT a.id, a.company_name, a.inn, a.status, MAX(apc.created_at) AS activity_at
+        SELECT a.id, a.company_name, a.inn, a.status, a.intake_status, a.customer_name, MAX(uc.created_at) AS activity_at
         FROM applications a
-        INNER JOIN application_products ap ON ap.application_id = a.id
-        INNER JOIN application_product_chats apc ON apc.application_product_id = ap.id
-        WHERE apc.is_read = 0 AND apc.user_id = a.created_by
-        GROUP BY a.id, a.company_name, a.inn, a.status
+        INNER JOIN {$unreadUnionSql} uc ON uc.application_id = a.id AND {$unreadJoinCondition}
+        GROUP BY a.id, a.company_name, a.inn, a.status, a.intake_status, a.customer_name
         ORDER BY activity_at DESC
         LIMIT 5
     ");
     $dashboardAppsWithUnread = $stmt ? $stmt->fetchAll(PDO::FETCH_ASSOC) : [];
 } elseif (finbuild_can_use_product_chat($currentUser) && $isSubmanager) {
     $stmt = $pdo->prepare("
-        SELECT a.id, a.company_name, a.inn, a.status, MAX(apc.created_at) AS activity_at
+        SELECT a.id, a.company_name, a.inn, a.status, a.intake_status, a.customer_name, MAX(uc.created_at) AS activity_at
         FROM applications a
-        INNER JOIN application_products ap ON ap.application_id = a.id
-        INNER JOIN application_product_chats apc ON apc.application_product_id = ap.id
-        WHERE a.assigned_to = ? AND apc.is_read = 0 AND apc.user_id = a.created_by
-        GROUP BY a.id, a.company_name, a.inn, a.status
+        INNER JOIN {$unreadUnionSql} uc ON uc.application_id = a.id AND {$unreadJoinCondition}
+        WHERE a.assigned_to = ?
+        GROUP BY a.id, a.company_name, a.inn, a.status, a.intake_status, a.customer_name
         ORDER BY activity_at DESC
         LIMIT 5
     ");
@@ -93,16 +96,18 @@ if (finbuild_can_use_product_chat($currentUser) && finbuild_has_full_manager_acc
     $dashboardAppsWithUnread = $stmt->fetchAll(PDO::FETCH_ASSOC);
 } elseif (finbuild_can_use_product_chat($currentUser)) {
     $stmt = $pdo->prepare("
-        SELECT a.id, a.company_name, a.inn, a.status, MAX(apc.created_at) AS activity_at
+        SELECT a.id, a.company_name, a.inn, a.status, a.intake_status, a.customer_name, MAX(uc.created_at) AS activity_at
         FROM applications a
-        INNER JOIN application_products ap ON ap.application_id = a.id
-        INNER JOIN application_product_chats apc ON apc.application_product_id = ap.id
-        WHERE a.created_by = ? AND apc.is_read = 0 AND apc.user_id != ?
-        GROUP BY a.id, a.company_name, a.inn, a.status
+        INNER JOIN {$unreadUnionSql} uc ON uc.application_id = a.id AND {$unreadJoinCondition}
+        WHERE (a.created_by = :uid_owner OR a.principal_user_id = :uid_principal)
+        GROUP BY a.id, a.company_name, a.inn, a.status, a.intake_status, a.customer_name
         ORDER BY activity_at DESC
         LIMIT 5
     ");
-    $stmt->execute([$userId, $userId]);
+    $stmt->bindValue(':uid_owner', $userId, PDO::PARAM_INT);
+    $stmt->bindValue(':uid_principal', $userId, PDO::PARAM_INT);
+    $stmt->bindValue(':current_user', $userId, PDO::PARAM_INT);
+    $stmt->execute();
     $dashboardAppsWithUnread = $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
@@ -110,7 +115,7 @@ if (finbuild_has_full_manager_access()) {
     $excludeUnreadIds = array_map('intval', array_column($dashboardAppsWithUnread, 'id'));
     if ($excludeUnreadIds === []) {
         $stmt = $pdo->query("
-            SELECT a.id, a.company_name, a.inn, a.status, a.created_at AS activity_at
+            SELECT a.id, a.company_name, a.inn, a.status, a.intake_status, a.customer_name, a.created_at AS activity_at
             FROM applications a
             WHERE a.status = 'new'
             ORDER BY a.created_at DESC
@@ -120,7 +125,7 @@ if (finbuild_has_full_manager_access()) {
     } else {
         $ph = implode(',', array_fill(0, count($excludeUnreadIds), '?'));
         $stmt = $pdo->prepare("
-            SELECT a.id, a.company_name, a.inn, a.status, a.created_at AS activity_at
+            SELECT a.id, a.company_name, a.inn, a.status, a.intake_status, a.customer_name, a.created_at AS activity_at
             FROM applications a
             WHERE a.status = 'new' AND a.id NOT IN ($ph)
             ORDER BY a.created_at DESC
@@ -133,7 +138,7 @@ if (finbuild_has_full_manager_access()) {
     $excludeUnreadIds = array_map('intval', array_column($dashboardAppsWithUnread, 'id'));
     if ($excludeUnreadIds === []) {
         $stmt = $pdo->prepare("
-            SELECT a.id, a.company_name, a.inn, a.status, a.created_at AS activity_at
+            SELECT a.id, a.company_name, a.inn, a.status, a.intake_status, a.customer_name, a.created_at AS activity_at
             FROM applications a
             WHERE a.status = 'new' AND a.assigned_to = ?
             ORDER BY a.created_at DESC
@@ -144,7 +149,7 @@ if (finbuild_has_full_manager_access()) {
     } else {
         $ph = implode(',', array_fill(0, count($excludeUnreadIds), '?'));
         $stmt = $pdo->prepare("
-            SELECT a.id, a.company_name, a.inn, a.status, a.created_at AS activity_at
+            SELECT a.id, a.company_name, a.inn, a.status, a.intake_status, a.customer_name, a.created_at AS activity_at
             FROM applications a
             WHERE a.status = 'new' AND a.assigned_to = ? AND a.id NOT IN ($ph)
             ORDER BY a.created_at DESC
@@ -163,7 +168,7 @@ $dashboardAttentionIds = array_unique(array_merge(
 if (finbuild_has_full_manager_access()) {
     if ($dashboardAttentionIds === []) {
         $stmt = $pdo->query("
-            SELECT a.id, a.company_name, a.inn, a.status, a.updated_at AS activity_at
+            SELECT a.id, a.company_name, a.inn, a.status, a.intake_status, a.customer_name, a.updated_at AS activity_at
             FROM applications a
             WHERE a.status IN ($activeStatusListSql)
             ORDER BY a.updated_at DESC
@@ -173,7 +178,7 @@ if (finbuild_has_full_manager_access()) {
     } else {
         $ph = implode(',', array_fill(0, count($dashboardAttentionIds), '?'));
         $stmt = $pdo->prepare("
-            SELECT a.id, a.company_name, a.inn, a.status, a.updated_at AS activity_at
+            SELECT a.id, a.company_name, a.inn, a.status, a.intake_status, a.customer_name, a.updated_at AS activity_at
             FROM applications a
             WHERE a.status IN ($activeStatusListSql) AND a.id NOT IN ($ph)
             ORDER BY a.updated_at DESC
@@ -185,7 +190,7 @@ if (finbuild_has_full_manager_access()) {
 } elseif ($isSubmanager) {
     if ($dashboardAttentionIds === []) {
         $stmt = $pdo->prepare("
-            SELECT a.id, a.company_name, a.inn, a.status, a.updated_at AS activity_at
+            SELECT a.id, a.company_name, a.inn, a.status, a.intake_status, a.customer_name, a.updated_at AS activity_at
             FROM applications a
             WHERE a.assigned_to = ? AND a.status IN ($activeStatusListSql)
             ORDER BY a.updated_at DESC
@@ -196,7 +201,7 @@ if (finbuild_has_full_manager_access()) {
     } else {
         $ph = implode(',', array_fill(0, count($dashboardAttentionIds), '?'));
         $stmt = $pdo->prepare("
-            SELECT a.id, a.company_name, a.inn, a.status, a.updated_at AS activity_at
+            SELECT a.id, a.company_name, a.inn, a.status, a.intake_status, a.customer_name, a.updated_at AS activity_at
             FROM applications a
             WHERE a.assigned_to = ? AND a.status IN ($activeStatusListSql) AND a.id NOT IN ($ph)
             ORDER BY a.updated_at DESC
@@ -208,24 +213,24 @@ if (finbuild_has_full_manager_access()) {
 } else {
     if ($dashboardAttentionIds === []) {
         $stmt = $pdo->prepare("
-            SELECT a.id, a.company_name, a.inn, a.status, a.updated_at AS activity_at
+            SELECT a.id, a.company_name, a.inn, a.status, a.intake_status, a.customer_name, a.updated_at AS activity_at
             FROM applications a
-            WHERE a.created_by = ? AND a.status IN ($activeStatusListSql)
+            WHERE (a.created_by = ? OR a.principal_user_id = ?) AND a.status IN ($activeStatusListSql)
             ORDER BY a.updated_at DESC
             LIMIT 8
         ");
-        $stmt->execute([$userId]);
+        $stmt->execute([$userId, $userId]);
         $dashboardRecentActive = $stmt->fetchAll(PDO::FETCH_ASSOC);
     } else {
         $ph = implode(',', array_fill(0, count($dashboardAttentionIds), '?'));
         $stmt = $pdo->prepare("
-            SELECT a.id, a.company_name, a.inn, a.status, a.updated_at AS activity_at
+            SELECT a.id, a.company_name, a.inn, a.status, a.intake_status, a.customer_name, a.updated_at AS activity_at
             FROM applications a
-            WHERE a.created_by = ? AND a.status IN ($activeStatusListSql) AND a.id NOT IN ($ph)
+            WHERE (a.created_by = ? OR a.principal_user_id = ?) AND a.status IN ($activeStatusListSql) AND a.id NOT IN ($ph)
             ORDER BY a.updated_at DESC
             LIMIT 8
         ");
-        $stmt->execute(array_merge([$userId], $dashboardAttentionIds));
+        $stmt->execute(array_merge([$userId, $userId], $dashboardAttentionIds));
         $dashboardRecentActive = $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 }
@@ -857,9 +862,18 @@ $newsChunks = array_chunk($newsItems, 3);
                         <div class="dashboard-op-list">
                             <?php foreach ($dashboardAppsWithUnread as $row): ?>
                                 <a class="dashboard-op-item" href="application_details.php?id=<?= (int) $row['id'] ?>">
-                                    <div class="dashboard-op-item-title"><?= htmlspecialchars(finbuild_dashboard_company_label($row), ENT_QUOTES | ENT_HTML5, 'UTF-8') ?></div>
+                                    <div class="dashboard-op-item-title">
+                                        <?= htmlspecialchars(finbuild_dashboard_company_label($row), ENT_QUOTES | ENT_HTML5, 'UTF-8') ?>
+                                        <?= finbuild_application_intake_badge_html($row) ?>
+                                    </div>
                                     <?php if (trim((string) ($row['inn'] ?? '')) !== ''): ?>
                                         <div class="dashboard-op-item-meta">ИНН <?= htmlspecialchars((string) $row['inn'], ENT_QUOTES | ENT_HTML5, 'UTF-8') ?></div>
+                                    <?php endif; ?>
+                                    <?php
+                                    $dashIntake = finbuild_application_intake_mark($row);
+                                    if ($dashIntake['is_intake'] && $dashIntake['customer'] !== '' && $dashIntake['customer'] !== trim((string) ($row['company_name'] ?? ''))):
+                                    ?>
+                                        <div class="dashboard-op-item-meta">Заказчик: <?= htmlspecialchars($dashIntake['customer'], ENT_QUOTES | ENT_HTML5, 'UTF-8') ?></div>
                                     <?php endif; ?>
                                     <div class="dashboard-op-item-foot">
                                         <span class="dashboard-op-pill"><i class="bi bi-chat-dots-fill"></i> Непрочитанные в чате</span>
@@ -870,7 +884,10 @@ $newsChunks = array_chunk($newsItems, 3);
                             <?php endforeach; ?>
                             <?php foreach ($dashboardNewForManager as $row): ?>
                                 <a class="dashboard-op-item" href="application_details.php?id=<?= (int) $row['id'] ?>">
-                                    <div class="dashboard-op-item-title"><?= htmlspecialchars(finbuild_dashboard_company_label($row), ENT_QUOTES | ENT_HTML5, 'UTF-8') ?></div>
+                                    <div class="dashboard-op-item-title">
+                                        <?= htmlspecialchars(finbuild_dashboard_company_label($row), ENT_QUOTES | ENT_HTML5, 'UTF-8') ?>
+                                        <?= finbuild_application_intake_badge_html($row) ?>
+                                    </div>
                                     <?php if (trim((string) ($row['inn'] ?? '')) !== ''): ?>
                                         <div class="dashboard-op-item-meta">ИНН <?= htmlspecialchars((string) $row['inn'], ENT_QUOTES | ENT_HTML5, 'UTF-8') ?></div>
                                     <?php endif; ?>
@@ -895,7 +912,10 @@ $newsChunks = array_chunk($newsItems, 3);
                         <div class="dashboard-op-grid">
                             <?php foreach ($dashboardRecentActive as $row): ?>
                                 <a class="dashboard-op-chip" href="application_details.php?id=<?= (int) $row['id'] ?>">
-                                    <div class="dashboard-op-chip-title"><?= htmlspecialchars(finbuild_dashboard_company_label($row), ENT_QUOTES | ENT_HTML5, 'UTF-8') ?></div>
+                                    <div class="dashboard-op-chip-title">
+                                        <?= htmlspecialchars(finbuild_dashboard_company_label($row), ENT_QUOTES | ENT_HTML5, 'UTF-8') ?>
+                                        <?= finbuild_application_intake_badge_html($row) ?>
+                                    </div>
                                     <?php if (trim((string) ($row['inn'] ?? '')) !== ''): ?>
                                         <div class="dashboard-op-chip-meta">ИНН <?= htmlspecialchars((string) $row['inn'], ENT_QUOTES | ENT_HTML5, 'UTF-8') ?></div>
                                     <?php endif; ?>

@@ -35,6 +35,8 @@ if ($role_filter === 'client') {
     $sql .= " AND u.role = 'client'";
 } elseif ($role_filter === 'partner') {
     $sql .= " AND u.role = 'partner'";
+} elseif ($role_filter === 'beneficiary') {
+    $sql .= " AND u.role = 'beneficiary'";
 } elseif ($role_filter === 'analyst') {
     $sql .= " AND (u.role = 'analyst' OR u.is_analyst = 1)";
 } elseif ($role_filter === 'manager') {
@@ -77,6 +79,7 @@ require_once 'header.php';
 .badge-custom { border: none; padding: 0.35rem 0.65rem; font-weight: 500; font-size: 0.75rem; color: white !important; border-radius: 6px; }
 .badge-role-partner { background: linear-gradient(135deg, #3498db, #2980b9); box-shadow: 0 2px 4px rgba(52, 152, 219, 0.2); }
 .badge-role-client { background: linear-gradient(135deg, #6f42c1, #59359a); box-shadow: 0 2px 4px rgba(111, 66, 193, 0.2); }
+.badge-role-beneficiary { background: linear-gradient(135deg, #f0ad4e, #d39e00); box-shadow: 0 2px 4px rgba(240, 173, 78, 0.25); color: #212529 !important; }
 .badge-role-partner-analyst { background: linear-gradient(135deg, #3498db, #0ca678); box-shadow: 0 2px 4px rgba(52, 152, 219, 0.25); }
 .badge-role-analyst { background: linear-gradient(135deg, #20c997, #0ca678); box-shadow: 0 2px 4px rgba(32, 201, 151, 0.2); }
 .badge-role-manager { background: linear-gradient(135deg, #fd7e14, #e8590c); box-shadow: 0 2px 4px rgba(253, 126, 20, 0.2); }
@@ -173,6 +176,7 @@ require_once 'header.php';
                 <select name="role_filter" class="form-select" onchange="this.form.submit()">
                     <option value="all" <?= $role_filter === 'all' ? 'selected' : '' ?>>Все роли</option>
                     <option value="client" <?= $role_filter === 'client' ? 'selected' : '' ?>>Клиенты</option>
+                    <option value="beneficiary" <?= $role_filter === 'beneficiary' ? 'selected' : '' ?>>Заказчики</option>
                     <option value="partner" <?= $role_filter === 'partner' ? 'selected' : '' ?>>Партнеры</option>
                     <option value="analyst" <?= $role_filter === 'analyst' ? 'selected' : '' ?>>Аналитики</option>
                     <option value="manager" <?= $role_filter === 'manager' ? 'selected' : '' ?>>Менеджеры по заявкам</option>
@@ -274,6 +278,8 @@ require_once 'header.php';
                                         <span class="badge badge-custom badge-role-partner">Партнер</span>
                                     <?php elseif ($user['role'] === 'analyst'): ?>
                                         <span class="badge badge-custom badge-role-analyst">Аналитик</span>
+                                    <?php elseif ($user['role'] === 'beneficiary'): ?>
+                                        <span class="badge badge-custom badge-role-beneficiary">Заказчик</span>
                                     <?php else: ?>
                                         <span class="badge badge-custom badge-role-client">Клиент</span>
                                     <?php endif; ?>

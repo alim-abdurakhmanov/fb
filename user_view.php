@@ -51,7 +51,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $role = $_POST['role'] ?? 'client';
         if ($isCaseManagerTarget) {
             $role = 'case_manager';
-        } elseif (!in_array($role, ['client', 'partner'], true)) {
+        } elseif (!in_array($role, ['client', 'partner', 'beneficiary'], true)) {
             $role = 'client';
         }
         $is_active = isset($_POST['is_active']) ? 1 : 0;
@@ -68,9 +68,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             $inn = preg_replace('/\D/', '', $inn);
             if ($inn === '') {
-                $profileError = "ИНН обязателен для клиента";
+                $profileError = $role === 'beneficiary' ? "ИНН обязателен для заказчика" : "ИНН обязателен для клиента";
             } elseif (!preg_match('/^\d{10,12}$/', $inn)) {
                 $profileError = "ИНН должен состоять из 10–12 цифр";
+            }
+            if ($role === 'beneficiary' && $company_name === '' && $profileError === '') {
+                $profileError = "Название организации обязательно для заказчика";
             }
         }
 
@@ -134,9 +137,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-// Заявки
-$stmt = $pdo->prepare("SELECT * FROM applications WHERE created_by = ? ORDER BY created_at DESC");
-$stmt->execute([$userId]);
+// Заявки пользователя: как владелец или как принципал
+$stmt = $pdo->prepare(
+    'SELECT * FROM applications WHERE created_by = ? OR principal_user_id = ? ORDER BY created_at DESC'
+);
+$stmt->execute([$userId, $userId]);
 $userApplications = $stmt->fetchAll();
 
 function getStatusBadgeLocal($status) {
@@ -417,6 +422,7 @@ require_once 'header.php';
                         <?php else: ?>
                         <select name="role" id="editRole" class="form-select">
                             <option value="client" <?= $user['role'] === 'client' ? 'selected' : '' ?>>Клиент</option>
+                            <option value="beneficiary" <?= $user['role'] === 'beneficiary' ? 'selected' : '' ?>>Заказчик</option>
                             <option value="partner" <?= $user['role'] === 'partner' ? 'selected' : '' ?>>Партнер</option>
                         </select>
                         <?php endif; ?>

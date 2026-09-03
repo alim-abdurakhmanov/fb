@@ -198,8 +198,7 @@ function checkAuth() {
 }
 
 /**
- * Количество заявок, в которых есть хотя бы одно непрочитанное сообщение в чатах продуктов
- * (та же логика «кто считается автором непрочитанного», что на applications.php).
+ * Количество заявок с непрочитанными сообщениями (чат заявки + чаты продуктов).
  */
 function getApplicationsWithUnreadMessagesCount(): int {
     if (!isset($_SESSION['user_id'])) {
@@ -210,46 +209,37 @@ function getApplicationsWithUnreadMessagesCount(): int {
         return 0;
     }
 
+    require_once __DIR__ . '/includes/chat_helpers.php';
+
     $pdo = getPDO();
     $userId = (int) $_SESSION['user_id'];
     $userRole = $_SESSION['role'] ?? 'client';
+    $union = finbuild_unread_chat_union_sql();
+    $cond = finbuild_unread_chat_join_condition((string) $userRole);
+
+    $sql = "
+        SELECT COUNT(DISTINCT a.id) AS unread_count
+        FROM applications a
+        INNER JOIN {$union} uc ON uc.application_id = a.id AND {$cond}
+    ";
 
     if (finbuild_is_case_manager()) {
-        // Менеджер по заявкам: только заявки, где он ответственный
-        $sql = "
-            SELECT COUNT(DISTINCT a.id) AS unread_count
-            FROM application_product_chats apc
-            INNER JOIN application_products ap ON apc.application_product_id = ap.id
-            INNER JOIN applications a ON ap.application_id = a.id
-            WHERE a.assigned_to = ? AND apc.is_read = 0 AND apc.user_id = a.created_by
-        ";
+        $sql .= ' WHERE a.assigned_to = :assigned';
         $stmt = $pdo->prepare($sql);
-        $stmt->execute([$userId]);
-    } elseif (finbuild_is_manager($userRole)) {
-        // Director / manager: непрочитанными считаем только сообщения от владельца заявки
-        $sql = "
-            SELECT COUNT(DISTINCT a.id) AS unread_count
-            FROM application_product_chats apc
-            INNER JOIN application_products ap ON apc.application_product_id = ap.id
-            INNER JOIN applications a ON ap.application_id = a.id
-            WHERE apc.is_read = 0 AND apc.user_id = a.created_by
-        ";
-        $stmt = $pdo->prepare($sql);
+        $stmt->bindValue(':assigned', $userId, PDO::PARAM_INT);
         $stmt->execute();
+    } elseif (finbuild_is_manager($userRole)) {
+        $stmt = $pdo->query($sql);
     } else {
-        // Клиенты и партнёры: непрочитанные от других участников в своих заявках
-        $sql = "
-            SELECT COUNT(DISTINCT a.id) AS unread_count
-            FROM application_product_chats apc
-            INNER JOIN application_products ap ON apc.application_product_id = ap.id
-            INNER JOIN applications a ON ap.application_id = a.id
-            WHERE a.created_by = ? AND apc.is_read = 0 AND apc.user_id != ?
-        ";
+        $sql .= ' WHERE (a.created_by = :uid_owner OR a.principal_user_id = :uid_principal)';
         $stmt = $pdo->prepare($sql);
-        $stmt->execute([$userId, $userId]);
+        $stmt->bindValue(':uid_owner', $userId, PDO::PARAM_INT);
+        $stmt->bindValue(':uid_principal', $userId, PDO::PARAM_INT);
+        $stmt->bindValue(':current_user', $userId, PDO::PARAM_INT);
+        $stmt->execute();
     }
 
-    $result = $stmt->fetch();
+    $result = $stmt ? $stmt->fetch() : false;
     return (int) ($result['unread_count'] ?? 0);
 }
 
@@ -290,7 +280,7 @@ function getUnreadSupportCount() {
 function getCurrentUser() {
     $pdo = getPDO();
     if (isset($_SESSION['user_id'])) {
-        $stmt = $pdo->prepare("SELECT id, email, password, first_name, last_name, phone, company_name, bank_code, role, is_analyst, is_submanager, registration_date, is_active, avatar_path, updated_at, email_notifications_enabled, notification_email FROM users WHERE id = ?");
+        $stmt = $pdo->prepare("SELECT id, email, password, first_name, last_name, phone, company_name, inn, bank_code, role, is_analyst, is_submanager, registration_date, is_active, avatar_path, updated_at, email_notifications_enabled, notification_email FROM users WHERE id = ?");
         $stmt->execute([$_SESSION['user_id']]);
         return $stmt->fetch();
     }

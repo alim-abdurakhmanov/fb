@@ -4,6 +4,7 @@ require_once 'config.php';
 require_once __DIR__ . '/includes/application_documents_upload.php';
 require_once __DIR__ . '/includes/upload_access.php';
 require_once __DIR__ . '/includes/beneficiary_intake.php';
+require_once __DIR__ . '/includes/chat_helpers.php';
 checkAuth();
 
 $pdo = getPDO();
@@ -138,6 +139,7 @@ $chatDefaultThread = finbuild_is_manager($userRole)
 if (!in_array($chatDefaultThread, $chatAllowedThreads, true)) {
     $chatDefaultThread = $chatAllowedThreads[0] ?? 'principal';
 }
+$viewerHasProductChats = $userRole !== 'beneficiary';
 
 // Список менеджеров для поля "Ответственный"
 $managersList = [];
@@ -150,7 +152,11 @@ if (finbuild_can('applications.assign', $currentUser)) {
 // Получаем продукты заявки
 $products = [];
 $unreadCounts = [];
+$appChatUnread = 0;
+$appChatUnreadCurrent = 0;
+$productUnreadTotal = 0;
 $totalUnreadMessages = 0;
+$showProductChatTabs = false;
 $productNavEnabled = !$isAnalystView;
 
 $stmtProducts = $pdo->prepare("
@@ -173,41 +179,53 @@ $stmtProducts->execute([$applicationId]);
 $products = $stmtProducts->fetchAll();
 
 if (!$isAnalystView && $canUseProductChat) {
-// Получаем количество непрочитанных сообщений для каждого продукта
 $applicationOwnerId = (int) $application['created_by'];
 $principalUid = (int) ($application['principal_user_id'] ?? 0);
-foreach ($products as $product) {
-    if (finbuild_is_manager($userRole)) {
-        if ($chatDefaultThread === 'beneficiary') {
+$showProductChatTabs = $userRole !== 'beneficiary' && count($products) > 0;
+if ($showProductChatTabs) {
+    foreach ($products as $product) {
+        if (finbuild_is_manager($userRole)) {
             $stmtUnread = $pdo->prepare("
                 SELECT COUNT(*) as unread_count 
-                FROM application_product_chats 
-                WHERE application_product_id = ? AND thread = 'beneficiary' AND is_read = 0 AND user_id = ?
+                FROM application_product_chats c
+                INNER JOIN users u ON u.id = c.user_id
+                WHERE c.application_product_id = ? AND c.thread = 'principal'
+                  AND c.is_read = 0 AND u.role IN ('client', 'partner')
             ");
-            $stmtUnread->execute([$product['id'], $applicationOwnerId]);
+            $stmtUnread->execute([$product['id']]);
         } else {
-            $counterpart = $principalUid > 0 ? $principalUid : $applicationOwnerId;
             $stmtUnread = $pdo->prepare("
                 SELECT COUNT(*) as unread_count 
                 FROM application_product_chats 
-                WHERE application_product_id = ? AND thread = 'principal' AND is_read = 0 AND user_id = ?
+                WHERE application_product_id = ? AND thread = 'principal' AND is_read = 0 AND user_id != ?
             ");
-            $stmtUnread->execute([$product['id'], $counterpart]);
+            $stmtUnread->execute([$product['id'], $userId]);
         }
-    } else {
-        $stmtUnread = $pdo->prepare("
-            SELECT COUNT(*) as unread_count 
-            FROM application_product_chats 
-            WHERE application_product_id = ? AND thread = ? AND is_read = 0 AND user_id != ?
-        ");
-        $stmtUnread->execute([$product['id'], $chatDefaultThread, $userId]);
+        $unreadCounts[$product['id']] = $stmtUnread->fetch()['unread_count'];
     }
-    $unreadCounts[$product['id']] = $stmtUnread->fetch()['unread_count'];
 }
 
+$appChatUnreadCurrent = finbuild_application_chat_unread_count(
+    $pdo,
+    (int) $applicationId,
+    (string) $userRole,
+    (int) $userId,
+    $application,
+    $chatDefaultThread
+);
+$appChatUnread = finbuild_application_chat_unread_total(
+    $pdo,
+    (int) $applicationId,
+    (string) $userRole,
+    (int) $userId,
+    $application,
+    $chatAllowedThreads
+);
+$productUnreadTotal = 0;
 foreach ($unreadCounts as $unreadCount) {
-    $totalUnreadMessages += $unreadCount;
+    $productUnreadTotal += (int) $unreadCount;
 }
+$totalUnreadMessages = $appChatUnread + $productUnreadTotal;
 }
 
 // Функции для форматирования
@@ -1163,7 +1181,10 @@ body.app-chat-open .app-chat-fab { display: none; }
     flex-wrap: wrap;
     position: relative;
 }
-
+.app-chat-products-tabs:empty,
+.app-chat-products-tabs.is-single {
+    display: none;
+}
 .app-chat-products-tabs::after {
     content: "";
     position: absolute;
@@ -1175,7 +1196,6 @@ body.app-chat-open .app-chat-fab { display: none; }
     background: linear-gradient(to bottom, rgba(15, 23, 42, 0.18), rgba(15, 23, 42, 0));
     z-index: 0;
 }
-
 .app-chat-products-tabs > * {
     position: relative;
     z-index: 1;
@@ -1211,7 +1231,6 @@ body.app-chat-open .app-chat-fab { display: none; }
     font-size: 0.72rem;
     font-weight: 700;
 }
-
 .app-chat-body {
     display: flex;
     flex-direction: column;
@@ -1863,35 +1882,58 @@ body.app-chat-open .app-chat-fab { display: none; }
             <?php
             $intakeStatus = (string) ($application['intake_status'] ?? '');
             $showIntakeReview = finbuild_is_manager($userRole) && $intakeStatus === 'pending_review';
+            $showIntakeApprovedControls = finbuild_is_manager($userRole) && $intakeStatus === 'approved';
             $showIntakeInfo = $intakeStatus !== '';
+            $intakeAmountSummary = $showIntakeInfo ? finbuild_application_intake_amount_summary($application) : '';
+            $intakeCreds = finbuild_is_manager($userRole)
+                ? finbuild_intake_peek_created_client_credentials((int) $applicationId)
+                : null;
+            $defaultAmountMode = (($application['amount_mode'] ?? '') === 'open') ? 'open' : 'fixed';
+            $intakeIsLimitOnly = ($defaultAmountMode === 'open');
+            $defaultApproveValue = (string) (
+                $application['requested_amount']
+                ?? $application['amount']
+                ?? $application['approved_amount']
+                ?? $application['approved_limit']
+                ?? ''
+            );
+            if ($intakeIsLimitOnly && $defaultApproveValue === '' && !empty($application['approved_limit'])) {
+                $defaultApproveValue = (string) $application['approved_limit'];
+            }
             ?>
             <?php if ($showIntakeInfo): ?>
             <div class="alert <?= $intakeStatus === 'pending_review' ? 'alert-warning' : ($intakeStatus === 'approved' ? 'alert-success' : 'alert-secondary') ?> border-0 shadow-sm mb-4">
                 <div class="d-flex flex-wrap justify-content-between gap-2 align-items-start">
                     <div>
-                        <strong>Запрос заказчика (бенефициара)</strong>
+                        <strong>Заявка от заказчика</strong>
                         <?php if ($intakeStatus === 'pending_review'): ?>
                             — на рассмотрении
                         <?php elseif ($intakeStatus === 'approved'): ?>
-                            — одобрен
+                            — одобрена
                         <?php elseif ($intakeStatus === 'rejected'): ?>
-                            — отклонён
+                            — отклонена
                         <?php endif; ?>
                         <div class="small mt-1">
-                            Режим суммы:
-                            <?= (($application['amount_mode'] ?? '') === 'open') ? 'без конкретной суммы / лимит' : 'фиксированная' ?>
-                            <?php if (!empty($application['requested_amount'])): ?>
-                                · запрошено: <?= number_format((float) $application['requested_amount'], 0, '.', ' ') ?> ₽
+                            <?php if ($intakeAmountSummary !== ''): ?>
+                                <?= htmlspecialchars($intakeAmountSummary) ?>
                             <?php endif; ?>
                             <?php if (!empty($application['principal_inn']) || !empty($application['principal_company_name'])): ?>
                                 <br>Принципал:
                                 <?= htmlspecialchars(trim((string) ($application['principal_company_name'] ?? ''))) ?>
                                 <?= !empty($application['principal_inn']) ? ' (ИНН ' . htmlspecialchars((string) $application['principal_inn']) . ')' : '' ?>
+                                <?= !empty($application['principal_email']) ? ' · ' . htmlspecialchars((string) $application['principal_email']) : '' ?>
                             <?php else: ?>
                                 <br>Принципал ещё не указан
                             <?php endif; ?>
                         </div>
                     </div>
+                    <?php if ($showIntakeApprovedControls): ?>
+                    <div>
+                        <button type="button" class="btn btn-outline-secondary btn-sm" id="intakeReopenBtn">
+                            Изменить сумму / лимит
+                        </button>
+                    </div>
+                    <?php endif; ?>
                 </div>
             </div>
             <?php endif; ?>
@@ -1912,43 +1954,87 @@ body.app-chat-open .app-chat-fab { display: none; }
                                    value="<?= htmlspecialchars((string) ($application['principal_company_name'] ?? '')) ?>">
                         </div>
                         <div class="col-md-4">
-                            <label class="form-label">E-mail нового клиента *</label>
-                            <input type="email" class="form-control" id="intakeClientEmail" placeholder="Если клиента ещё нет в системе">
+                            <label class="form-label">E-mail принципала<?= empty($application['principal_user_id']) ? ' *' : '' ?></label>
+                            <input type="email" class="form-control" id="intakeClientEmail"
+                                   placeholder="<?= empty($application['principal_user_id']) ? 'Для создания клиента' : 'Уже привязан' ?>"
+                                   value="<?= htmlspecialchars((string) ($application['principal_email'] ?? '')) ?>">
                         </div>
                         <div class="col-md-4">
-                            <label class="form-label">Телефон клиента</label>
+                            <label class="form-label">Телефон принципала</label>
                             <input type="text" class="form-control" id="intakeClientPhone">
                         </div>
                         <div class="col-md-4">
-                            <label class="form-label">Одобряемая сумма / лимит, ₽</label>
+                            <label class="form-label" id="intakeApproveValueLabel">
+                                <?= $intakeIsLimitOnly ? 'Лимит, ₽ *' : 'Запрашиваемая сумма, ₽ *' ?>
+                            </label>
                             <input type="text" class="form-control" id="intakeApproveValue"
-                                   value="<?= htmlspecialchars((string) ($application['requested_amount'] ?? $application['amount'] ?? '')) ?>">
+                                   value="<?= htmlspecialchars($defaultApproveValue) ?>">
+                            <input type="hidden" id="intakeAmountModeFixed" value="<?= $intakeIsLimitOnly ? 'open' : 'fixed' ?>">
                         </div>
                     </div>
                     <div class="d-flex flex-wrap gap-2">
-                        <button type="button" class="btn btn-success btn-sm" id="intakeApproveAmountBtn">Одобрить сумму</button>
-                        <button type="button" class="btn btn-primary btn-sm" id="intakeApproveLimitBtn">Установить лимит</button>
+                        <button type="button" class="btn btn-success btn-sm" id="intakeApproveBtn">
+                            <?= $intakeIsLimitOnly ? 'Одобрить лимит' : 'Одобрить' ?>
+                        </button>
                         <button type="button" class="btn btn-outline-danger btn-sm" id="intakeRejectBtn">Отклонить</button>
                     </div>
                     <div class="small text-muted mt-2" id="intakeReviewStatus"></div>
                 </div>
             </div>
+            <?php endif; ?>
+
+            <?php if (finbuild_is_manager($userRole) && ($showIntakeReview || $showIntakeApprovedControls || $intakeCreds)): ?>
+            <div class="modal fade" id="intakeCredentialsModal" tabindex="-1" aria-hidden="true">
+                <div class="modal-dialog">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title">Доступ принципала</h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+                        </div>
+                        <div class="modal-body">
+                            <p class="mb-3">Сохраните логин и пароль — после закрытия окна пароль больше не будет показан.</p>
+                            <div class="mb-3">
+                                <label class="form-label">Логин (e-mail)</label>
+                                <div class="input-group">
+                                    <input type="text" class="form-control" id="intakeCredEmail" readonly>
+                                    <button type="button" class="btn btn-outline-secondary" id="intakeCopyEmailBtn">Копировать</button>
+                                </div>
+                            </div>
+                            <div class="mb-0">
+                                <label class="form-label">Пароль</label>
+                                <div class="input-group">
+                                    <input type="text" class="form-control" id="intakeCredPassword" readonly>
+                                    <button type="button" class="btn btn-outline-secondary" id="intakeCopyPasswordBtn">Копировать</button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-outline-secondary" id="intakeCopyBothBtn">Копировать оба</button>
+                            <button type="button" class="btn btn-primary" id="intakeCredDoneBtn">Сохранил, закрыть</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
             <script>
             (function () {
                 const appId = <?= (int) $applicationId ?>;
-                async function postIntake(action) {
+                const pendingCreds = <?= json_encode($intakeCreds, JSON_UNESCAPED_UNICODE) ?>;
+                const intakeAmountMode = <?= json_encode($defaultAmountMode, JSON_UNESCAPED_UNICODE) ?>;
+
+                function selectedMode() {
+                    return intakeAmountMode === 'open' ? 'open' : 'fixed';
+                }
+
+                async function postIntake(action, extra) {
                     const statusEl = document.getElementById('intakeReviewStatus');
-                    const payload = {
+                    const payload = Object.assign({
                         application_id: appId,
                         action: action,
                         principal_inn: (document.getElementById('intakePrincipalInn') || {}).value || '',
                         principal_company_name: (document.getElementById('intakePrincipalCompany') || {}).value || '',
                         client_email: (document.getElementById('intakeClientEmail') || {}).value || '',
                         client_phone: (document.getElementById('intakeClientPhone') || {}).value || '',
-                    };
-                    const val = parseFloat(String((document.getElementById('intakeApproveValue') || {}).value || '').replace(/\s/g, '').replace(',', '.'));
-                    if (action === 'approve_amount') payload.approved_amount = val;
-                    if (action === 'approve_limit') payload.approved_limit = val;
+                    }, extra || {});
                     if (statusEl) statusEl.textContent = 'Сохранение…';
                     try {
                         const res = await fetch('api_intake_review.php', {
@@ -1960,27 +2046,126 @@ body.app-chat-open .app-chat-fab { display: none; }
                         const data = await res.json();
                         if (!data.success) {
                             if (statusEl) statusEl.textContent = data.error || 'Ошибка';
-                            return;
+                            return null;
                         }
-                        let msg = 'Сохранено.';
-                        if (data.created_client && data.plain_password) {
-                            msg += ' Создан клиент, пароль: ' + data.plain_password;
-                        }
-                        if (statusEl) statusEl.textContent = msg;
-                        setTimeout(function () { window.location.reload(); }, 800);
+                        return data;
                     } catch (e) {
                         if (statusEl) statusEl.textContent = 'Сеть или сервер недоступны';
+                        return null;
                     }
                 }
-                const a = document.getElementById('intakeApproveAmountBtn');
-                const l = document.getElementById('intakeApproveLimitBtn');
-                const r = document.getElementById('intakeRejectBtn');
-                if (a) a.addEventListener('click', function () { postIntake('approve_amount'); });
-                if (l) l.addEventListener('click', function () { postIntake('approve_limit'); });
-                if (r) r.addEventListener('click', function () {
-                    if (!confirm('Отклонить запрос заказчика?')) return;
-                    postIntake('reject');
-                });
+
+                function showCredentialsModal(email, password) {
+                    const emailEl = document.getElementById('intakeCredEmail');
+                    const passEl = document.getElementById('intakeCredPassword');
+                    if (emailEl) emailEl.value = email || '';
+                    if (passEl) passEl.value = password || '';
+                    const modalEl = document.getElementById('intakeCredentialsModal');
+                    if (modalEl && window.bootstrap) {
+                        bootstrap.Modal.getOrCreateInstance(modalEl).show();
+                    } else {
+                        alert('Логин: ' + email + '\nПароль: ' + password);
+                    }
+                }
+
+                async function copyText(text) {
+                    try {
+                        await navigator.clipboard.writeText(text);
+                        return true;
+                    } catch (e) {
+                        return false;
+                    }
+                }
+
+                const approveBtn = document.getElementById('intakeApproveBtn');
+                const rejectBtn = document.getElementById('intakeRejectBtn');
+                const reopenBtn = document.getElementById('intakeReopenBtn');
+
+                if (approveBtn) {
+                    approveBtn.addEventListener('click', async function () {
+                        const mode = selectedMode();
+                        const val = parseFloat(String((document.getElementById('intakeApproveValue') || {}).value || '').replace(/\s/g, '').replace(',', '.'));
+                        const extra = { action: 'approve', amount_mode: mode };
+                        if (mode === 'open') extra.approved_limit = val;
+                        else extra.approved_amount = val;
+                        const data = await postIntake('approve', extra);
+                        if (!data) return;
+                        if (data.created_client && data.plain_password) {
+                            const statusEl = document.getElementById('intakeReviewStatus');
+                            if (statusEl) statusEl.textContent = 'Клиент создан. Сохраните логин и пароль.';
+                            showCredentialsModal(data.client_email || ((document.getElementById('intakeClientEmail') || {}).value || ''), data.plain_password);
+                            const done = document.getElementById('intakeCredDoneBtn');
+                            if (done) {
+                                done.onclick = async function () {
+                                    await postIntake('dismiss_credentials', {});
+                                    window.location.reload();
+                                };
+                            }
+                            return;
+                        }
+                        window.location.reload();
+                    });
+                }
+
+                if (rejectBtn) {
+                    rejectBtn.addEventListener('click', async function () {
+                        if (!confirm('Отклонить запрос заказчика?')) return;
+                        const data = await postIntake('reject', {});
+                        if (data) window.location.reload();
+                    });
+                }
+
+                if (reopenBtn) {
+                    reopenBtn.addEventListener('click', async function () {
+                        if (!confirm('Снять одобрение, чтобы заново указать сумму или лимит?')) return;
+                        const data = await postIntake('reopen', {});
+                        if (data) window.location.reload();
+                    });
+                }
+
+                const copyEmailBtn = document.getElementById('intakeCopyEmailBtn');
+                const copyPassBtn = document.getElementById('intakeCopyPasswordBtn');
+                const copyBothBtn = document.getElementById('intakeCopyBothBtn');
+                if (copyEmailBtn) {
+                    copyEmailBtn.addEventListener('click', async function () {
+                        const v = (document.getElementById('intakeCredEmail') || {}).value || '';
+                        await copyText(v);
+                    });
+                }
+                if (copyPassBtn) {
+                    copyPassBtn.addEventListener('click', async function () {
+                        const v = (document.getElementById('intakeCredPassword') || {}).value || '';
+                        await copyText(v);
+                    });
+                }
+                if (copyBothBtn) {
+                    copyBothBtn.addEventListener('click', async function () {
+                        const email = (document.getElementById('intakeCredEmail') || {}).value || '';
+                        const pass = (document.getElementById('intakeCredPassword') || {}).value || '';
+                        await copyText('Логин: ' + email + '\nПароль: ' + pass);
+                    });
+                }
+
+                const credDoneBtn = document.getElementById('intakeCredDoneBtn');
+                if (credDoneBtn && !credDoneBtn.onclick) {
+                    credDoneBtn.addEventListener('click', async function () {
+                        await postIntake('dismiss_credentials', {});
+                        const modalEl = document.getElementById('intakeCredentialsModal');
+                        if (modalEl && window.bootstrap) {
+                            bootstrap.Modal.getOrCreateInstance(modalEl).hide();
+                        }
+                        window.location.reload();
+                    });
+                }
+
+                if (pendingCreds && pendingCreds.email && pendingCreds.password) {
+                    document.addEventListener('DOMContentLoaded', function () {
+                        showCredentialsModal(pendingCreds.email, pendingCreds.password);
+                    });
+                    if (document.readyState !== 'loading') {
+                        showCredentialsModal(pendingCreds.email, pendingCreds.password);
+                    }
+                }
             })();
             </script>
             <?php endif; ?>
@@ -2634,7 +2819,8 @@ body.app-chat-open .app-chat-fab { display: none; }
                                     $roleNames = [
                                         'manager' => 'Менеджер',
                                         'partner' => 'Партнер',
-                                        'client' => 'Клиент'
+                                        'client' => 'Клиент',
+                                        'beneficiary' => 'Заказчик',
                                     ];
                                     $ownerRole = $roleNames[$application['user_role'] ?? 'client'] ?? 'Клиент';
                                     $ownerName = trim(($application['first_name'] ?? '') . ' ' . ($application['last_name'] ?? ''));
@@ -3163,7 +3349,15 @@ body.app-chat-open .app-chat-fab { display: none; }
         </div>
     </div>
 
-    <div class="app-chat-products-tabs" id="appChatProductTabs">
+    <div class="app-chat-products-tabs<?= empty($showProductChatTabs) || $chatDefaultThread === 'beneficiary' ? ' is-single' : '' ?>" id="appChatProductTabs">
+        <button type="button"
+                class="app-chat-product-tab active"
+                data-chat="application"
+                title="Общий чат">
+            <span class="text-truncate" style="max-width: 220px;">Общий чат</span>
+            <span class="app-chat-product-badge" data-badge-chat="application" style="<?= ($appChatUnreadCurrent ?? 0) > 0 ? '' : 'display:none;' ?>"><?= (int) ($appChatUnreadCurrent ?? 0) ?></span>
+        </button>
+        <?php if (!empty($viewerHasProductChats)): ?>
         <?php foreach ($products as $p): ?>
             <?php
                 $pid = (int)$p['id'];
@@ -3173,12 +3367,14 @@ body.app-chat-open .app-chat-fab { display: none; }
             ?>
             <button type="button"
                     class="app-chat-product-tab"
+                    data-chat="product"
                     data-product-id="<?= $pid ?>"
                     title="<?= htmlspecialchars($tabLabel) ?>">
                 <span class="text-truncate" style="max-width: 220px;"><?= htmlspecialchars($tabLabel) ?></span>
                 <span class="app-chat-product-badge" data-badge-product-id="<?= $pid ?>" style="<?= $cnt > 0 ? '' : 'display:none;' ?>"><?= $cnt ?></span>
             </button>
         <?php endforeach; ?>
+        <?php endif; ?>
     </div>
 
     <div class="app-chat-body">
@@ -3186,8 +3382,8 @@ body.app-chat-open .app-chat-fab { display: none; }
             <div class="app-chat-messages" id="appChatMessages">
                 <div class="message-system">
                     <div class="message-content">
-                        <i class="bi bi-hand-index-thumb me-2"></i>
-                        <?= count($products) > 1 ? 'Выберите продукт сверху, чтобы открыть чат.' : 'Открываем чат…' ?>
+                        <i class="bi bi-chat-dots me-2"></i>
+                        Открываем чат…
                     </div>
                 </div>
             </div>
@@ -3196,9 +3392,9 @@ body.app-chat-open .app-chat-fab { display: none; }
             </button>
         </div>
 
-        <div class="app-chat-input <?= count($products) > 1 ? 'd-none' : '' ?>" id="appChatInput">
+        <div class="app-chat-input" id="appChatInput">
             <form id="appChatForm" enctype="multipart/form-data">
-                <input type="hidden" name="application_product_id" id="appChatProductId" value="">
+                <input type="hidden" name="application_id" id="appChatApplicationId" value="<?= (int) $applicationId ?>">
                 <div class="mb-2">
                     <textarea name="message" class="form-control chat-textarea" id="appChatTextarea" placeholder="Введите сообщение..." rows="2"></textarea>
                 </div>
@@ -3230,7 +3426,7 @@ body.app-chat-open .app-chat-fab { display: none; }
 <?php if (!$isAnalystView && $canUseProductChat): ?>
 <button class="app-chat-fab" id="appChatFab" type="button">
     <i class="bi bi-chat-dots"></i>
-    <span class="app-chat-fab-label">Чаты</span>
+    <span class="app-chat-fab-label"><?= !empty($showProductChatTabs) && $chatDefaultThread !== 'beneficiary' ? 'Чаты' : 'Чат' ?></span>
     <span class="app-chat-fab-badge" id="appChatFabBadge" style="<?= $totalUnreadMessages > 0 ? '' : 'display:none;' ?>"><?= (int)$totalUnreadMessages ?></span>
 </button>
 <?php endif; ?>
@@ -3464,9 +3660,8 @@ document.addEventListener('DOMContentLoaded', function() {
 // Chat drawer widget (application_details.php)
 // ============================================================================
 document.addEventListener('DOMContentLoaded', function() {
-    const products = <?= json_encode(array_map(static fn($p) => (int)$p['id'], $products), JSON_UNESCAPED_UNICODE) ?>;
-    const singleProductId = (products.length === 1) ? products[0] : null;
-    const defaultProductId = (products.length > 0) ? products[0] : null;
+    const applicationId = <?= (int) $applicationId ?>;
+    const products = <?= json_encode(!empty($viewerHasProductChats) ? array_map(static fn($p) => (int)$p['id'], $products) : [], JSON_UNESCAPED_UNICODE) ?>;
     const POLL_MS = 12000;
 
     const fab = document.getElementById('appChatFab');
@@ -3479,7 +3674,6 @@ document.addEventListener('DOMContentLoaded', function() {
     const messagesEl = document.getElementById('appChatMessages');
     const newBelowBtn = document.getElementById('appChatNewBelowBtn');
     const form = document.getElementById('appChatForm');
-    const hiddenProductId = document.getElementById('appChatProductId');
     const textarea = document.getElementById('appChatTextarea');
     const filesBtn = document.getElementById('appChatFilesBtn');
     const filesInput = document.getElementById('appChatFiles');
@@ -3487,18 +3681,68 @@ document.addEventListener('DOMContentLoaded', function() {
     const sendBtn = document.getElementById('appChatSendBtn');
     const chatInput = document.getElementById('appChatInput');
     let activeThread = <?= json_encode($chatDefaultThread, JSON_UNESCAPED_UNICODE) ?>;
+    let activeProductId = null;
+    let appUnread = <?= (int) $appChatUnread ?>;
+    let productUnreadTotal = <?= (int) $productUnreadTotal ?>;
 
     if (!fab || !drawer) {
         return;
     }
 
-    let activeProductId = null;
     let pollTimer = null;
     let isFetching = false;
     let markReadTimer = null;
 
+    function isAppScope() {
+        return !activeProductId;
+    }
+
+    function threadHasProductChats() {
+        return activeThread !== 'beneficiary' && products.length > 0;
+    }
+
+    function syncProductTabs() {
+        if (!threadHasProductChats()) {
+            activeProductId = null;
+        }
+        if (tabsWrap) {
+            tabsWrap.classList.toggle('is-single', !threadHasProductChats());
+        }
+        const fabLabel = fab.querySelector('.app-chat-fab-label');
+        if (fabLabel) {
+            fabLabel.textContent = threadHasProductChats() ? 'Чаты' : 'Чат';
+        }
+    }
+
     function applyThreadParam(url) {
         url.searchParams.set('thread', activeThread || 'principal');
+        return url;
+    }
+
+    function appChatUrl(action, extra) {
+        const url = new URL('api_application_chat.php', window.location.href);
+        url.searchParams.set('action', action);
+        url.searchParams.set('application_id', String(applicationId));
+        applyThreadParam(url);
+        if (extra) {
+            Object.keys(extra).forEach(function (k) {
+                url.searchParams.set(k, extra[k]);
+            });
+        }
+        return url;
+    }
+
+    function productChatUrl(action, extra) {
+        const pid = activeProductId || products[0] || 0;
+        const url = new URL('api_product_chat.php', window.location.href);
+        url.searchParams.set('action', action);
+        url.searchParams.set('application_product_id', String(pid));
+        url.searchParams.set('thread', 'principal');
+        if (extra) {
+            Object.keys(extra).forEach(function (k) {
+                url.searchParams.set(k, extra[k]);
+            });
+        }
         return url;
     }
 
@@ -3511,29 +3755,24 @@ document.addEventListener('DOMContentLoaded', function() {
             threadSwitch.querySelectorAll('[data-thread]').forEach(function (b) {
                 b.classList.toggle('active', b === btn);
             });
-            if (activeProductId) {
-                loadChat(activeProductId, { scroll: 'bottom' });
-            }
+            syncProductTabs();
+            loadChat({ scroll: 'bottom' });
         });
     }
 
     function scheduleMarkReadDebounced() {
-        if (!isOpen() || !activeProductId) return;
+        if (!isOpen()) return;
         if (!isChatNearBottom(80)) return;
         clearTimeout(markReadTimer);
         markReadTimer = setTimeout(async function() {
-            if (!isOpen() || !activeProductId) return;
+            if (!isOpen()) return;
             if (!isChatNearBottom(80)) return;
             try {
-                const url = new URL('api_product_chat.php', window.location.href);
-                url.searchParams.set('action', 'mark_read');
-                url.searchParams.set('application_product_id', String(activeProductId));
-                applyThreadParam(url);
+                const url = isAppScope() ? appChatUrl('mark_read') : productChatUrl('mark_read');
                 const r = await fetch(url.toString(), { credentials: 'same-origin' });
                 const data = await r.json();
                 if (data && data.success) {
-                    updateTabBadges(data.unread_counts || {});
-                    updateFabBadge(data.total_unread || 0);
+                    applyUnreadFromResponse(data, isAppScope());
                 }
             } catch (e) {}
         }, 350);
@@ -3550,13 +3789,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function openDrawer() {
         document.body.classList.add('app-chat-open');
-        if (singleProductId && !activeProductId) {
-            setActiveProduct(singleProductId, { openAfter: true });
-            return;
-        }
-        if (!singleProductId && !activeProductId) {
-            setChatInputVisible(false);
-        }
+        loadChat({ scroll: 'bottom' });
     }
 
     function closeDrawer() {
@@ -3586,9 +3819,9 @@ document.addEventListener('DOMContentLoaded', function() {
         if (newBelowBtn) newBelowBtn.classList.remove('d-none');
     }
 
-    function updateFabBadge(total) {
+    function updateFabBadge() {
         if (!fabBadge) return;
-        const t = Number(total || 0);
+        const t = Number(appUnread || 0) + Number(productUnreadTotal || 0);
         if (t > 0) {
             fabBadge.style.display = '';
             fabBadge.textContent = String(t);
@@ -3597,11 +3830,25 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    function updateTabBadges(unreadCounts) {
+    function updateAppTabBadge(count) {
+        const el = document.querySelector('[data-badge-chat="application"]');
+        if (!el) return;
+        const cnt = Number(count || 0);
+        if (cnt > 0) {
+            el.style.display = '';
+            el.textContent = String(cnt);
+        } else {
+            el.style.display = 'none';
+        }
+    }
+
+    function updateProductTabBadges(unreadCounts) {
         if (!unreadCounts) return;
+        let sum = 0;
         document.querySelectorAll('[data-badge-product-id]').forEach(function(el) {
             const pid = el.getAttribute('data-badge-product-id');
             const cnt = Number(unreadCounts[pid] || 0);
+            sum += cnt;
             if (cnt > 0) {
                 el.style.display = '';
                 el.textContent = String(cnt);
@@ -3609,35 +3856,32 @@ document.addEventListener('DOMContentLoaded', function() {
                 el.style.display = 'none';
             }
         });
+        productUnreadTotal = sum;
     }
 
-    function setActiveTabUi(pid) {
+    function applyUnreadFromResponse(data, fromApp) {
+        if (fromApp) {
+            appUnread = Number(data.total_unread || 0);
+            updateAppTabBadge(Number(data.unread != null ? data.unread : data.total_unread || 0));
+        } else {
+            updateProductTabBadges(data.unread_counts || {});
+            if (typeof data.total_unread === 'number') {
+                productUnreadTotal = Number(data.total_unread || 0);
+            }
+        }
+        updateFabBadge();
+    }
+
+    function setActiveTabUi() {
         document.querySelectorAll('.app-chat-product-tab').forEach(function(btn) {
-            const isActive = Number(btn.getAttribute('data-product-id')) === Number(pid);
-            btn.classList.toggle('active', isActive);
+            const isApp = btn.getAttribute('data-chat') === 'application';
+            const pid = Number(btn.getAttribute('data-product-id') || 0);
+            const active = isAppScope() ? isApp : (!isApp && pid === Number(activeProductId));
+            btn.classList.toggle('active', active);
         });
     }
 
-    async function fetchChat(action) {
-        if (!activeProductId && defaultProductId) {
-            activeProductId = defaultProductId;
-        }
-        const pid = activeProductId || defaultProductId;
-        if (!pid) return null;
-
-        const url = new URL('api_product_chat.php', window.location.href);
-        url.searchParams.set('action', action);
-        url.searchParams.set('application_product_id', String(pid));
-        applyThreadParam(url);
-
-        const r = await fetch(url.toString(), { credentials: 'same-origin' });
-        return await r.json();
-    }
-
-    /**
-     * scroll: 'bottom' — при открытии чата/смене вкладки; 'preserve' — при фоновом опросе, не дергать чтение истории
-     */
-    async function loadChat(pid, options) {
+    async function loadChat(options) {
         options = options || {};
         const scrollMode = options.scroll || 'bottom';
         if (!messagesEl) return;
@@ -3654,15 +3898,13 @@ document.addEventListener('DOMContentLoaded', function() {
             atBottomBefore = isChatNearBottom(56);
         }
         try {
-            activeProductId = Number(pid);
-            hiddenProductId.value = String(activeProductId);
-            setActiveTabUi(activeProductId);
-
-            const url = new URL('api_product_chat.php', window.location.href);
-            url.searchParams.set('action', 'get');
-            url.searchParams.set('application_product_id', String(activeProductId));
-            url.searchParams.set('mark_read', scrollMode === 'bottom' ? '1' : '0');
-            applyThreadParam(url);
+            if (!threadHasProductChats()) {
+                activeProductId = null;
+            }
+            setActiveTabUi();
+            const url = isAppScope()
+                ? appChatUrl('get', { mark_read: scrollMode === 'bottom' ? '1' : '0' })
+                : productChatUrl('get', { mark_read: scrollMode === 'bottom' ? '1' : '0' });
 
             const r = await fetch(url.toString(), { credentials: 'same-origin' });
             const data = await r.json();
@@ -3674,8 +3916,7 @@ document.addEventListener('DOMContentLoaded', function() {
             }
             messagesEl.innerHTML = data.messages_html || '';
             setChatInputVisible(true);
-            updateTabBadges(data.unread_counts || {});
-            updateFabBadge(data.total_unread || 0);
+            applyUnreadFromResponse(data, isAppScope());
             if (scrollMode === 'bottom') {
                 scrollToBottom();
             } else if (scrollMode === 'preserve') {
@@ -3695,39 +3936,42 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    function setActiveProduct(pid) {
-        if (!pid) return;
-        loadChat(pid, { scroll: 'bottom' });
-    }
-
     async function refreshCountsOnly() {
-        // use active if available, otherwise first product id
-        if (!products.length) return;
-        const pid = activeProductId || defaultProductId;
-        if (!pid) return;
-        const url = new URL('api_product_chat.php', window.location.href);
-        url.searchParams.set('action', 'counts');
-        url.searchParams.set('application_product_id', String(pid));
-        applyThreadParam(url);
-        const r = await fetch(url.toString(), { credentials: 'same-origin' });
-        const data = await r.json();
-        if (!data || !data.success) return;
-        updateTabBadges(data.unread_counts || {});
-        updateFabBadge(data.total_unread || 0);
+        try {
+            const appReq = fetch(appChatUrl('counts').toString(), { credentials: 'same-origin' }).then(function (r) { return r.json(); });
+            const jobs = [appReq];
+            if (products.length) {
+                jobs.push(fetch(productChatUrl('counts').toString(), { credentials: 'same-origin' }).then(function (r) { return r.json(); }));
+            }
+            const results = await Promise.all(jobs);
+            if (results[0] && results[0].success) {
+                applyUnreadFromResponse(results[0], true);
+            }
+            if (results[1] && results[1].success) {
+                applyUnreadFromResponse(results[1], false);
+            }
+        } catch (e) {}
     }
 
     function startPolling() {
         if (pollTimer) return;
         pollTimer = setInterval(async function() {
             try {
-                if (isOpen() && activeProductId) {
-                    await loadChat(activeProductId, { scroll: 'preserve' });
+                if (isOpen()) {
+                    await loadChat({ scroll: 'preserve' });
+                    if (isAppScope() && products.length) {
+                        const r = await fetch(productChatUrl('counts').toString(), { credentials: 'same-origin' });
+                        const data = await r.json();
+                        if (data && data.success) applyUnreadFromResponse(data, false);
+                    } else if (!isAppScope()) {
+                        const r = await fetch(appChatUrl('counts').toString(), { credentials: 'same-origin' });
+                        const data = await r.json();
+                        if (data && data.success) applyUnreadFromResponse(data, true);
+                    }
                 } else {
                     await refreshCountsOnly();
                 }
-            } catch (e) {
-                // ignore polling errors
-            }
+            } catch (e) {}
         }, POLL_MS);
     }
 
@@ -3760,7 +4004,6 @@ document.addEventListener('DOMContentLoaded', function() {
         renderSelectedFiles();
     }
 
-    // Events
     if (fab) fab.addEventListener('click', openDrawer);
     if (overlay) overlay.addEventListener('click', closeDrawer);
     if (closeBtn) closeBtn.addEventListener('click', closeDrawer);
@@ -3783,9 +4026,15 @@ document.addEventListener('DOMContentLoaded', function() {
         tabsWrap.addEventListener('click', function(e) {
             const btn = e.target.closest('.app-chat-product-tab');
             if (!btn) return;
-            const pid = Number(btn.getAttribute('data-product-id'));
-            if (!pid) return;
-            setActiveProduct(pid);
+            if (btn.getAttribute('data-chat') === 'application') {
+                activeProductId = null;
+            } else {
+                if (!threadHasProductChats()) return;
+                const pid = Number(btn.getAttribute('data-product-id'));
+                if (!pid) return;
+                activeProductId = pid;
+            }
+            loadChat({ scroll: 'bottom' });
         });
     }
 
@@ -3808,17 +4057,23 @@ document.addEventListener('DOMContentLoaded', function() {
     if (form) {
         form.addEventListener('submit', async function(e) {
             e.preventDefault();
-            if (!products.length) return;
-            if (!activeProductId) return;
+            if (!isAppScope() && !activeProductId) return;
 
             if (sendBtn) sendBtn.disabled = true;
             try {
                 const fd = new FormData(form);
                 fd.set('action', 'send');
-                fd.set('application_product_id', String(activeProductId));
-                fd.set('thread', activeThread || 'principal');
+                let endpoint = 'api_application_chat.php';
+                if (isAppScope()) {
+                    fd.set('thread', activeThread || 'principal');
+                    fd.set('application_id', String(applicationId));
+                } else {
+                    endpoint = 'api_product_chat.php';
+                    fd.set('thread', 'principal');
+                    fd.set('application_product_id', String(activeProductId));
+                }
 
-                const r = await fetch('api_product_chat.php', {
+                const r = await fetch(endpoint, {
                     method: 'POST',
                     body: fd,
                     credentials: 'same-origin',
@@ -3831,8 +4086,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     return;
                 }
                 if (messagesEl) messagesEl.innerHTML = data.messages_html || '';
-                updateTabBadges(data.unread_counts || {});
-                updateFabBadge(data.total_unread || 0);
+                applyUnreadFromResponse(data, isAppScope());
                 if (textarea) textarea.value = '';
                 if (filesInput) filesInput.value = '';
                 if (selectedFiles) selectedFiles.innerHTML = '';
@@ -3843,17 +4097,11 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    // Init
     startPolling();
-    // If user opens drawer later and there is only one product, it will auto-load.
-    // For multi-product, keep placeholder until user clicks a tab.
-    if (singleProductId) {
-        // preload counts and allow immediate open experience
-        updateFabBadge(<?= (int)$totalUnreadMessages ?>);
-    } else {
-        refreshCountsOnly();
-    }
+    syncProductTabs();
+    updateFabBadge();
 });
+
 </script>
 
 <!-- Модальное окно добавления продукта -->

@@ -246,6 +246,12 @@ function finbuild_can_access_application(
     return (int) $createdBy === $userId;
 }
 
+/** SQL: заявка принадлежит пользователю как владельцу или как принципалу (два плейсхолдера ?). */
+function finbuild_sql_user_application_scope(string $alias = 'a'): string
+{
+    return "({$alias}.created_by = ? OR {$alias}.principal_user_id = ?)";
+}
+
 /** Проваленная заявка недоступна в режиме аналитика (список и карточка). */
 function finbuild_analyst_cannot_view_failed_application(
     array $application,
@@ -307,10 +313,6 @@ function finbuild_role_display_name(?array $user): string
         'partner' => 'Партнер',
         'client' => 'Клиент',
         'beneficiary' => 'Заказчик',
-        'bank' => 'Банк',
-        'analyst' => 'Аналитик',
-    ];
-        'client' => 'Клиент',
         'bank' => 'Банк',
         'analyst' => 'Аналитик',
     ];

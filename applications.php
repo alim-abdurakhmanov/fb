@@ -1,6 +1,8 @@
 <?php
 $current_page = 'applications';
 require_once 'header.php';
+require_once __DIR__ . '/includes/chat_helpers.php';
+require_once __DIR__ . '/includes/beneficiary_intake.php';
 
 $pdo = getPDO();
 $currentUser = getCurrentUser();
@@ -231,24 +233,24 @@ $statsRows = $statsStmt->fetchAll();
 // ============================================================================
 // ПОДСЧЕТ НЕПРОЧИТАННЫХ СООБЩЕНИЙ С УЧЕТОМ ФИЛЬТРОВ
 // ============================================================================
-// Для менеджеров непрочитанными считаем только сообщения от владельца заявки (a.created_by)
+// Для менеджеров непрочитанными считаем сообщения внешних участников в их тредах
 $unreadWhereClause = $whereClause;
+$unreadUnionSql = finbuild_unread_chat_union_sql();
 if (!finbuild_can_use_product_chat($currentUser) || $isAnalystList || finbuild_is_analyst_role($userRole)) {
     $unreadJoinCondition = '0=1';
     $unreadWhereParams = $whereParams;
-} elseif (finbuild_is_manager($userRole)) {
-    $unreadJoinCondition = 'apc.is_read = 0 AND apc.user_id = a.created_by';
-    $unreadWhereParams = $whereParams;
 } else {
-    $unreadJoinCondition = 'apc.is_read = 0 AND apc.user_id != :current_user';
-    $unreadWhereParams = array_merge($whereParams, [':current_user' => $userId]);
+    $unreadJoinCondition = finbuild_unread_chat_join_condition((string) $userRole);
+    $unreadWhereParams = $whereParams;
+    if (!finbuild_is_manager($userRole)) {
+        $unreadWhereParams = array_merge($whereParams, [':current_user' => $userId]);
+    }
 }
 
 $unreadSql = "
-    SELECT COUNT(DISTINCT apc.id) as total_unread
+    SELECT COUNT(DISTINCT uc.chat_id) as total_unread
     FROM applications a
-    LEFT JOIN application_products ap ON ap.application_id = a.id
-    LEFT JOIN application_product_chats apc ON apc.application_product_id = ap.id
+    LEFT JOIN {$unreadUnionSql} uc ON uc.application_id = a.id
         AND {$unreadJoinCondition}
     WHERE {$unreadWhereClause}
 ";
@@ -292,18 +294,13 @@ $dataSql = "
            u.first_name, u.last_name, u.company_name as user_company, u.role,
            m.first_name as manager_name, m.last_name as manager_surname,
            assigned_user.first_name as assigned_first_name, assigned_user.last_name as assigned_last_name,
-           COUNT(DISTINCT apc.id) as unread_messages,
-           MAX(apc.created_at) as last_unread_message_date
+           COUNT(DISTINCT uc.chat_id) as unread_messages,
+           MAX(uc.created_at) as last_unread_message_date
     FROM applications a 
     LEFT JOIN users u ON a.created_by = u.id 
     LEFT JOIN users m ON a.added_by = m.id
     LEFT JOIN users assigned_user ON assigned_user.id = a.assigned_to
-    LEFT JOIN application_products ap ON ap.application_id = a.id
-    -- ============================================================================
-    -- ПОДСЧЕТ НЕПРОЧИТАННЫХ СООБЩЕНИЙ ДЛЯ ТЕКУЩЕГО ПОЛЬЗОВАТЕЛЯ
-    -- ============================================================================
-    -- Менеджеры: только сообщения от владельца заявки (a.created_by). Клиенты/партнеры: от других (user_id != :current_user)
-    LEFT JOIN application_product_chats apc ON apc.application_product_id = ap.id 
+    LEFT JOIN {$unreadUnionSql} uc ON uc.application_id = a.id
         AND {$unreadJoinCondition}
     WHERE {$whereClause}
     GROUP BY a.id
@@ -330,9 +327,9 @@ $dataSql = "
     --   4. Заявки без непрочитанных + закрытые статусы (по дате создания)
     -- 
     -- Это работает для всех ролей: клиенты, партнеры и менеджеры видят свои непрочитанные
-    ORDER BY (COUNT(DISTINCT apc.id) > 0) DESC, 
+    ORDER BY (COUNT(DISTINCT uc.chat_id) > 0) DESC, 
              {$orderByStatus} ASC,
-             COALESCE(MAX(apc.created_at), a.created_at) DESC
+             COALESCE(MAX(uc.created_at), a.created_at) DESC
     LIMIT :limit OFFSET :offset
 ";
 $stmt = $pdo->prepare($dataSql);
@@ -454,7 +451,7 @@ $stats['in_progress'] += $stats['pending_signing'] + $stats['product_request'] +
         </div>
         <div class="col-auto">
             <?php if (!$isAnalystList): ?>
-                <a href="<?= $userRole === 'beneficiary' ? 'create_beneficiary_application.php' : 'create_application.php' ?>" class="btn btn-primary">
+                <a href="<?= 'create_application.php' ?>" class="btn btn-primary">
                     <i class="bi bi-plus-circle me-2"></i>Создать заявку
                 </a>
             <?php endif; ?>
@@ -520,6 +517,11 @@ $stats['in_progress'] += $stats['pending_signing'] + $stats['product_request'] +
     font-weight: 500;
     color: #2c3e50;
     font-size: 0.875rem;
+}
+.company-name .badge {
+    margin-left: 0.35rem;
+    vertical-align: middle;
+    font-weight: 600;
 }
 
 .amount-cell {
@@ -1163,7 +1165,7 @@ $stats['in_progress'] += $stats['pending_signing'] + $stats['product_request'] +
                         <?php endif; ?>
                     </p>
                     <?php if (!$isAnalystList): ?>
-                    <a href="<?= $userRole === 'beneficiary' ? 'create_beneficiary_application.php' : 'create_application.php' ?>" class="btn btn-primary">
+                    <a href="<?= 'create_application.php' ?>" class="btn btn-primary">
                         <i class="bi bi-plus-circle me-2"></i>Создать первую заявку
                     </a>
                     <?php endif; ?>
@@ -1178,8 +1180,15 @@ $stats['in_progress'] += $stats['pending_signing'] + $stats['product_request'] +
                        data-status="<?= $application['status'] ?>" data-product-type="<?= $application['product_type'] ?>">
                             <div class="app-card-header">
                             <div>
-                                <div class="app-card-title">#<?= $application['id'] ?> · <?= htmlspecialchars($application['company_name']) ?></div>
-                                <div class="app-card-sub">ИНН: <?= htmlspecialchars($application['inn']) ?></div>
+                                <div class="app-card-title">#<?= $application['id'] ?> · <?= htmlspecialchars($application['company_name']) ?> <?= finbuild_application_intake_badge_html($application) ?></div>
+                                <div class="app-card-sub">ИНН: <?= htmlspecialchars($application['inn']) ?>
+                                    <?php
+                                    $intakeMark = finbuild_application_intake_mark($application);
+                                    if ($intakeMark['is_intake'] && $intakeMark['customer'] !== '' && $intakeMark['customer'] !== (string) $application['company_name']):
+                                    ?>
+                                        <div>Заказчик: <?= htmlspecialchars($intakeMark['customer']) ?></div>
+                                    <?php endif; ?>
+                                </div>
                             </div>
                             <?= getStatusBadge($application['status']) ?>
                         </div>
@@ -1276,9 +1285,15 @@ $stats['in_progress'] += $stats['pending_signing'] + $stats['product_request'] +
                 </td>
                 <td>
                     <div class="company-name">
-                       <!--  <?= getShortCompanyName($application['company_name']) ?> -->
-                         <?= $application['company_name'] ?>
+                         <?= htmlspecialchars((string) $application['company_name']) ?>
+                         <?= finbuild_application_intake_badge_html($application) ?>
                     </div>
+                    <?php
+                    $intakeMark = finbuild_application_intake_mark($application);
+                    if ($intakeMark['is_intake'] && $intakeMark['customer'] !== '' && $intakeMark['customer'] !== (string) $application['company_name']):
+                    ?>
+                        <div class="small text-muted mt-1">Заказчик: <?= htmlspecialchars($intakeMark['customer']) ?></div>
+                    <?php endif; ?>
                 </td>
                 <td>
                     <small class="text-muted"><?= htmlspecialchars($application['inn']) ?></small>
@@ -1360,6 +1375,8 @@ $stats['in_progress'] += $stats['pending_signing'] + $stats['product_request'] +
                                 $creatorText = '<i class="bi bi-gear me-1"></i>Создал клиент';
                             } elseif ($creatorRole === 'partner') {
                                 $creatorText = '<i class="bi bi-gear me-1"></i>Создал партнер';
+                            } elseif ($creatorRole === 'beneficiary') {
+                                $creatorText = '<i class="bi bi-gear me-1"></i>Создал заказчик';
                             } else {
                                 $creatorText = '';
                             }

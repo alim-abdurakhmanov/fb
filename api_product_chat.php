@@ -64,6 +64,10 @@ if (!finbuild_can_use_product_chat($currentUser)) {
     finbuild_chat_fail(403, 'Нет доступа к чату');
 }
 
+if ($userRole === 'beneficiary') {
+    finbuild_chat_fail(403, 'Чат по продукту недоступен для заказчика');
+}
+
 $allowedThreads = finbuild_chat_allowed_threads_for_viewer($currentUser, $meta);
 $requestedThread = finbuild_chat_normalize_thread((string)($_POST['thread'] ?? $_GET['thread'] ?? ''));
 if (finbuild_is_manager($userRole)) {
@@ -71,6 +75,10 @@ if (finbuild_is_manager($userRole)) {
 } else {
     $forced = finbuild_chat_thread_for_viewer($currentUser, $meta);
     $activeThread = $forced && in_array($forced, $allowedThreads, true) ? $forced : $allowedThreads[0];
+}
+
+if (!finbuild_chat_thread_has_product_chats($activeThread)) {
+    finbuild_chat_fail(403, 'Чат по продукту доступен только с клиентом');
 }
 
 /**
@@ -93,27 +101,19 @@ function finbuild_chat_compute_unread_counts(
     $totalUnread = 0;
     foreach ($productIds as $pid) {
         if (finbuild_is_manager($userRole)) {
-            // Непрочитанные от внешних участников в активном thread
-            if ($activeThread === 'beneficiary') {
-                $stmtUnread = $pdo->prepare(
-                    "SELECT COUNT(*) FROM application_product_chats
-                     WHERE application_product_id = ? AND thread = 'beneficiary' AND is_read = 0 AND user_id = ?"
-                );
-                $stmtUnread->execute([$pid, $applicationOwnerId]);
-            } else {
-                $counterpart = $principalUserId > 0 ? $principalUserId : $applicationOwnerId;
-                $stmtUnread = $pdo->prepare(
-                    "SELECT COUNT(*) FROM application_product_chats
-                     WHERE application_product_id = ? AND thread = 'principal' AND is_read = 0 AND user_id = ?"
-                );
-                $stmtUnread->execute([$pid, $counterpart]);
-            }
+            $stmtUnread = $pdo->prepare(
+                "SELECT COUNT(*) FROM application_product_chats c
+                 INNER JOIN users u ON u.id = c.user_id
+                 WHERE c.application_product_id = ? AND c.thread = 'principal'
+                   AND c.is_read = 0 AND u.role IN ('client', 'partner')"
+            );
+            $stmtUnread->execute([$pid]);
         } else {
             $stmtUnread = $pdo->prepare(
                 "SELECT COUNT(*) FROM application_product_chats
-                 WHERE application_product_id = ? AND thread = ? AND is_read = 0 AND user_id != ?"
+                 WHERE application_product_id = ? AND thread = 'principal' AND is_read = 0 AND user_id != ?"
             );
-            $stmtUnread->execute([$pid, $activeThread, $userId]);
+            $stmtUnread->execute([$pid, $userId]);
         }
         $cnt = (int)($stmtUnread->fetchColumn() ?? 0);
         $unreadCounts[$pid] = $cnt;
@@ -132,29 +132,21 @@ function finbuild_chat_mark_thread_read(
     string $activeThread
 ): void {
     if (finbuild_is_manager($userRole)) {
-        if ($activeThread === 'beneficiary') {
-            $stmtRead = $pdo->prepare(
-                "UPDATE application_product_chats
-                 SET is_read = 1
-                 WHERE application_product_id = ? AND thread = 'beneficiary' AND user_id = ? AND is_read = 0"
-            );
-            $stmtRead->execute([$productId, $applicationOwnerId]);
-        } else {
-            $counterpart = $principalUserId > 0 ? $principalUserId : $applicationOwnerId;
-            $stmtRead = $pdo->prepare(
-                "UPDATE application_product_chats
-                 SET is_read = 1
-                 WHERE application_product_id = ? AND thread = 'principal' AND user_id = ? AND is_read = 0"
-            );
-            $stmtRead->execute([$productId, $counterpart]);
-        }
+        $stmtRead = $pdo->prepare(
+            "UPDATE application_product_chats c
+             INNER JOIN users u ON u.id = c.user_id
+             SET c.is_read = 1
+             WHERE c.application_product_id = ? AND c.thread = 'principal'
+               AND c.is_read = 0 AND u.role IN ('client', 'partner')"
+        );
+        $stmtRead->execute([$productId]);
     } else {
         $stmtRead = $pdo->prepare(
             "UPDATE application_product_chats
              SET is_read = 1
-             WHERE application_product_id = ? AND thread = ? AND user_id != ? AND is_read = 0"
+             WHERE application_product_id = ? AND thread = 'principal' AND user_id != ? AND is_read = 0"
         );
-        $stmtRead->execute([$productId, $activeThread, $userId]);
+        $stmtRead->execute([$productId, $userId]);
     }
 }
 

@@ -37,9 +37,9 @@ function finbuild_access_permission_defs(): array
             'applicable_roles' => ['director', 'manager', 'case_manager', 'analyst'],
         ],
         'chat.access' => [
-            'label' => 'Чат по продукту',
+            'label' => 'Чат',
             'group' => 'Заявки',
-            'hint' => 'Плавающий чат на карточке заявки и чат на странице продукта. У партнёра, клиента и заказчика всегда включён; у банка — отдельный чат с менеджером.',
+            'hint' => 'Чат заявки на карточке и чат продукта на странице банка. У партнёра, клиента и заказчика всегда включён; у банка — отдельный чат с менеджером.',
             'applicable_roles' => ['director', 'manager', 'case_manager', 'analyst'],
         ],
         'banks.work' => [
@@ -71,7 +71,7 @@ function finbuild_access_permission_defs(): array
         'admin.users' => [
             'label' => 'Пользователи',
             'group' => 'Администрирование',
-            'hint' => 'Раздел пользователей: список, создание, карточка.',
+            'hint' => 'Раздел пользователей: список, создание, карточка. Заказчиков можно создать только здесь (саморегистрация недоступна).',
             'applicable_roles' => ['director', 'manager', 'case_manager', 'analyst'],
         ],
         'admin.products' => [
@@ -118,7 +118,7 @@ function finbuild_access_default_role_meta(): array
         'analyst' => ['label' => 'Аналитик', 'description' => ''],
         'partner' => ['label' => 'Партнёр', 'description' => ''],
         'client' => ['label' => 'Клиент', 'description' => ''],
-        'beneficiary' => ['label' => 'Заказчик', 'description' => ''],
+        'beneficiary' => ['label' => 'Заказчик', 'description' => 'Создаётся только через раздел «Пользователи»'],
         'bank' => ['label' => 'Банк', 'description' => ''],
     ];
 }
@@ -176,7 +176,7 @@ function finbuild_access_default_matrix(): array
 function finbuild_access_defaults(): array
 {
     return [
-        'version' => 7,
+        'version' => 8,
         'roles' => finbuild_access_default_role_meta(),
         'matrix' => finbuild_access_default_matrix(),
     ];
@@ -299,7 +299,7 @@ function finbuild_access_merge_config(array $defaults, array $stored): array
     // Руководитель всегда может управлять правами и видеть все заявки
     $out['matrix']['access_rights.manage']['director'] = true;
     $out['matrix']['applications.view_all']['director'] = true;
-    $out['version'] = max(7, (int) ($out['version'] ?? 7));
+    $out['version'] = max(8, (int) ($out['version'] ?? 8));
     return $out;
 }
 
@@ -367,7 +367,7 @@ function finbuild_should_mask_owner_identity(?array $user = null): bool
     return !finbuild_can('privacy.see_owner_identity', $user);
 }
 
-/** Доступ к чату продукта (плавающий на заявке + страница продукта). */
+/** Доступ к чату заявки и чату продукта. */
 function finbuild_can_use_product_chat(?array $user = null): bool
 {
     return finbuild_can('chat.access', $user);

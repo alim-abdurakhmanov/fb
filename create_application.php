@@ -7,10 +7,14 @@ checkAuth();
 $pdo = getPDO();
 $current_user_id = $_SESSION['user_id'];
 $user_role = $_SESSION['role'] ?? 'client';
-if ($user_role === 'beneficiary') {
-    header('Location: create_beneficiary_application.php');
-    exit;
-}
+$currentUserEarly = getCurrentUser();
+$isBeneficiary = ($user_role === 'beneficiary');
+$beneficiaryProfileInn = $isBeneficiary
+    ? (preg_replace('/\D+/', '', (string) ($currentUserEarly['inn'] ?? '')) ?? '')
+    : '';
+$beneficiaryProfileCompany = $isBeneficiary
+    ? trim((string) ($currentUserEarly['company_name'] ?? ''))
+    : '';
 $isSubmanager = finbuild_is_case_manager(); // Без выбора клиента и ответственного — он сам
 $usersList = [];
 $managersList = [];
@@ -49,6 +53,7 @@ if ($userRole === 'client') {
     $stmtInn->execute([$current_user_id]);
     $currentUserInn = (string)($stmtInn->fetchColumn() ?: '');
 }
+// У заказчика «ИНН организации» — принципал (не его профиль); ИНН заказчика подтянется в детали БГ.
 // if (finbuild_is_manager($userRole)) {
 //     header('Location: applications.php');
 //     exit();
@@ -74,24 +79,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         // Проверяем наличие term_bg для БГ
 if ($product_type === 'bg') {
-    $term_bg = $_POST['term_bg'] ?? null;
-    if (empty($term_bg)) {
-        throw new Exception("Укажите срок гарантии");
+    $term_bg = trim((string) ($_POST['term_bg'] ?? ''));
+    if ($term_bg === '') {
+        if ($isBeneficiary) {
+            $term_bg_date = null;
+            $term = null;
+        } else {
+            throw new Exception("Укажите срок гарантии");
+        }
+    } else {
+        // Преобразуем дату в формат для БД
+        $term_bg_date = date('Y-m-d', strtotime($term_bg));
+
+        // Рассчитываем количество месяцев от текущей даты до term_bg
+        $currentDate = new DateTime();
+        $endDate = new DateTime($term_bg_date);
+        $interval = $currentDate->diff($endDate);
+        $months = $interval->y * 12 + $interval->m;
+        // Если остались дни, добавляем еще месяц
+        if ($interval->d > 0) {
+            $months++;
+        }
+        $term = $months;
     }
-    
-    // Преобразуем дату в формат для БД
-    $term_bg_date = date('Y-m-d', strtotime($term_bg));
-    
-    // Рассчитываем количество месяцев от текущей даты до term_bg
-    $currentDate = new DateTime();
-    $endDate = new DateTime($term_bg_date);
-    $interval = $currentDate->diff($endDate);
-    $months = $interval->y * 12 + $interval->m;
-    // Если остались дни, добавляем еще месяц
-    if ($interval->d > 0) {
-        $months++;
-    }
-    $term = $months;
 } else {
     // Для кредита оставляем как есть
     $term = $_POST['term'] ? intval($_POST['term']) : null;
@@ -117,17 +127,41 @@ if ($product_type === 'bg') {
         // Получаем суммы с копейками
         $amount = null;
         $contract_price = null;
-        
+        $amountMode = 'fixed';
+        if ($isBeneficiary) {
+            $amountMode = (string) ($_POST['amount_mode'] ?? 'fixed');
+            if (!in_array($amountMode, ['fixed', 'open'], true)) {
+                $amountMode = 'fixed';
+            }
+        }
+
         try {
-            $amount = isset($_POST['amount']) ? parseAmount($_POST['amount']) : null;
+            if (!($isBeneficiary && $amountMode === 'open')) {
+                $amount = isset($_POST['amount']) ? parseAmount($_POST['amount']) : null;
+            }
         } catch (Exception $e) {
             throw new Exception("Ошибка в поле суммы: " . $e->getMessage());
+        }
+
+        if ($isBeneficiary && $amountMode === 'fixed' && ($amount === null || $amount <= 0)) {
+            throw new Exception('Укажите сумму гарантии или выберите режим без конкретной суммы');
+        }
+        if (!$isBeneficiary && $product_type === 'bg' && ($amount === null || $amount <= 0)) {
+            throw new Exception('Укажите сумму гарантии');
         }
         
         try {
             $contract_price = isset($_POST['contract_price']) ? parseAmount($_POST['contract_price']) : null;
         } catch (Exception $e) {
             throw new Exception("Ошибка в поле цены контракта: " . $e->getMessage());
+        }
+
+        $principalEmail = null;
+        if ($isBeneficiary) {
+            $principalEmail = trim((string) ($_POST['principal_email'] ?? ''));
+            if ($principalEmail === '' || !filter_var($principalEmail, FILTER_VALIDATE_EMAIL)) {
+                throw new Exception('Укажите корректный e-mail принципала (исполнителя)');
+            }
         }
 
         $is_extension = !empty($_POST['is_extension']) ? 1 : 0;
@@ -165,17 +199,50 @@ if ($product_type === 'bg') {
         $purchase_link = trim((string)($_POST['purchase_link'] ?? ''));
         $purchase_link = $purchase_link === '' ? null : $purchase_link;
 
+        $customerInn = trim((string) ($_POST['customer_inn'] ?? ''));
+        $customerName = trim((string) ($_POST['customer_name'] ?? ''));
+        $principalInn = null;
+        $principalCompany = null;
+        $intakeStatus = null;
+        $requestedAmount = $amount;
+        $declinedBanks = $isBeneficiary ? null : ($_POST['declined_banks'] ?? null);
+
+        if ($isBeneficiary) {
+            if ($beneficiaryProfileInn === '' || !preg_match('/^\d{10,12}$/', $beneficiaryProfileInn)) {
+                throw new Exception('В профиле не заполнен корректный ИНН заказчика. Обновите профиль.');
+            }
+            if ($beneficiaryProfileCompany === '') {
+                throw new Exception('В профиле не указано название организации. Обновите профиль.');
+            }
+            // Заказчик сам — бенефициар; организация в форме — принципал
+            $customerInn = $beneficiaryProfileInn;
+            $customerName = $beneficiaryProfileCompany;
+            $principalInn = $inn;
+            $principalCompany = $company_name;
+            $intakeStatus = 'pending_review';
+            $created_by = (int) $current_user_id;
+            $added_by = (int) $current_user_id;
+            $assigned_to = null;
+            if ($amountMode === 'open') {
+                $amount = null;
+                $requestedAmount = null;
+            } else {
+                $requestedAmount = $amount;
+            }
+        }
+
         $stmt = $pdo->prepare("INSERT INTO applications 
-            (company_name, inn, product_type, fz_type, guarantee_type, loan_type, amount, term, term_bg,
+            (company_name, inn, product_type, fz_type, guarantee_type, loan_type, amount, amount_mode, requested_amount, term, term_bg,
              is_extension, is_replacement,
-             purchase_number, purchase_link, declined_banks, contract_subject, contract_price, customer_inn, customer_name, 
+             purchase_number, purchase_link, declined_banks, contract_subject, contract_price, customer_inn, customer_name,
+             principal_inn, principal_company_name, principal_email, intake_status,
              guarantee_provision_deadline,
              collateral_transport_enabled, collateral_transport_details,
              collateral_real_estate_enabled, collateral_real_estate_details,
              collateral_deposit_note_enabled, collateral_deposit_note_details,
              collateral_third_party_guarantee_enabled, collateral_third_party_guarantee_details,
              contact_name, contact_phone, comment, created_by, added_by, assigned_to) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
 
         $stmt->execute([
             $company_name,
@@ -185,17 +252,23 @@ if ($product_type === 'bg') {
             $_POST['guarantee_type'] ?? null,
             $_POST['loan_type'] ?? null,
             $amount,
+            $amountMode,
+            $requestedAmount,
             $term,
             $product_type === 'bg' ? $term_bg_date : null,
             $is_extension,
             $is_replacement,
             $_POST['purchase_number'] ?? null,
             $purchase_link,
-            $_POST['declined_banks'] ?? null,
+            $declinedBanks,
             $_POST['contract_subject'] ?? null,
             $contract_price,
-            $_POST['customer_inn'] ?? null,
-            $_POST['customer_name'] ?? null,
+            $customerInn !== '' ? $customerInn : null,
+            $customerName !== '' ? $customerName : null,
+            $principalInn,
+            $principalCompany,
+            $principalEmail,
+            $intakeStatus,
             $product_type === 'bg' && trim((string)($_POST['guarantee_provision_deadline'] ?? '')) !== '' ? trim((string)$_POST['guarantee_provision_deadline']) : null,
             $product_type === 'bg' && !empty($_POST['collateral_transport_enabled']) ? 1 : 0,
             $product_type === 'bg' && !empty($_POST['collateral_transport_enabled']) && trim((string)($_POST['collateral_transport_details'] ?? '')) !== '' ? trim((string)$_POST['collateral_transport_details']) : null,
@@ -217,7 +290,7 @@ if ($product_type === 'bg') {
         
         // Обработка документов
         if (!empty($_FILES)) {
-            handleApplicationDocuments($pdo, $application_id, $_POST, $_FILES);
+            handleApplicationDocuments($pdo, $application_id, $_POST, $_FILES, $isBeneficiary);
         }
 
         require_once __DIR__ . '/includes/notification_events.php';
@@ -231,7 +304,7 @@ if ($product_type === 'bg') {
 }
   
 // Обновленная функция для обработки документов
-function handleApplicationDocuments($pdo, $application_id, $post, $files) {
+function handleApplicationDocuments($pdo, $application_id, $post, $files, $beneficiaryOnlyOther = false) {
     $upload_dir = 'uploads/applications/' . $application_id . '/';
     
     // Создаем директорию если не существует
@@ -262,7 +335,15 @@ function handleApplicationDocuments($pdo, $application_id, $post, $files) {
             'description' => 'Дополнительные документы по усмотрению клиента'
         ]
     ];
-    
+
+    if ($beneficiaryOnlyOther) {
+        $document_types = [
+            'other_documents' => [
+                'label' => 'Документы',
+                'description' => 'Документы к заявке заказчика'
+            ]
+        ];
+    }
     foreach ($document_types as $key => $doc_info) {
         if (!empty($files[$key]['name'][0])) {
             foreach ($files[$key]['name'] as $index => $name) {
@@ -334,7 +415,7 @@ require_once 'header.php';
     <div class="row align-items-center">
         <div class="col">
             <h1 class="h3 mb-0">Создание заявки</h1>
-            <p class="text-muted mb-0">Заполните форму для создания новой заявки</p>
+            <p class="text-muted mb-0"><?= $isBeneficiary ? 'Заявка на заказчика (бенефициара).' : 'Заполните форму для создания новой заявки' ?></p>
         </div>
         <div class="col-auto">
             <a href="applications.php" class="btn btn-outline-secondary">
@@ -442,9 +523,9 @@ require_once 'header.php';
     content: " *";
     color: #dc3545;
 }
-.required-field::after {
-    content: " *";
-    color: #dc3545;
+
+.amount-mode-switch .form-check {
+    margin-bottom: 0.35rem;
 }
 
 .document-section {
@@ -720,7 +801,7 @@ require_once 'header.php';
                     </div>
                     
                     <div class="col-md-6 mb-3">
-                        <label class="form-label required-field">ИНН организации</label>
+                        <label class="form-label required-field"><?= $isBeneficiary ? 'ИНН принципала (исполнителя)' : 'ИНН организации' ?></label>
                         <div class="input-group">
                             <input type="text" class="form-control" name="inn" id="inn" 
                                    maxlength="12" required
@@ -736,11 +817,20 @@ require_once 'header.php';
                 </div>
                 
                 <div class="row">
-                    <div class="col-12 mb-3">
-                        <label class="form-label required-field">Название организации</label>
+                    <div class="col-<?= $isBeneficiary ? 'md-6' : '12' ?> mb-3">
+                        <label class="form-label required-field"><?= $isBeneficiary ? 'Название принципала (исполнителя)' : 'Название организации' ?></label>
                         <input type="text" class="form-control" name="company_name" id="companyName" required
-                               placeholder="Название организации появится автоматически">
+                               placeholder="Название организации появится автоматически"
+                               value="<?= htmlspecialchars((string) ($_POST['company_name'] ?? '')) ?>">
                     </div>
+                    <?php if ($isBeneficiary): ?>
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label required-field">E-mail принципала (исполнителя)</label>
+                        <input type="email" class="form-control" name="principal_email" id="principalEmail" required
+                               placeholder="email@company.com"
+                               value="<?= htmlspecialchars((string) ($_POST['principal_email'] ?? '')) ?>">
+                    </div>
+                    <?php endif; ?>
                 </div>
             </div>
 
@@ -852,6 +942,38 @@ require_once 'header.php';
     </div>
     
     <div class="row">
+        <?php if ($isBeneficiary): ?>
+        <div class="col-md-6 mb-3">
+            <label class="form-label required-field">Сумма гарантии</label>
+            <div class="amount-mode-switch mb-2">
+                <div class="form-check">
+                    <input class="form-check-input" type="radio" name="amount_mode" id="amountModeFixed" value="fixed"
+                           <?= (($_POST['amount_mode'] ?? 'fixed') !== 'open') ? 'checked' : '' ?>>
+                    <label class="form-check-label" for="amountModeFixed">Конкретная сумма</label>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input" type="radio" name="amount_mode" id="amountModeOpen" value="open"
+                           <?= (($_POST['amount_mode'] ?? '') === 'open') ? 'checked' : '' ?>>
+                    <label class="form-check-label" for="amountModeOpen">Без суммы — установить лимит</label>
+                </div>
+            </div>
+            <div id="beneficiaryAmountWrap">
+                <input type="text" class="form-control" name="amount" id="beneficiaryAmount"
+                       placeholder="Например: 1 000 000,50"
+                       pattern="[\d\s,\.]+"
+                       value="<?= htmlspecialchars((string) ($_POST['amount'] ?? '')) ?>">
+            </div>
+            <div id="beneficiaryLimitHint" class="form-text" style="display:none;">
+                Сумма не фиксируется — лимит установят при одобрении.
+            </div>
+        </div>
+        <div class="col-md-6 mb-3">
+            <label class="form-label">Срок гарантии до</label>
+            <input type="date" class="form-control" name="term_bg"
+                   min="<?= date('Y-m-d') ?>"
+                   placeholder="Выберите дату окончания гарантии">
+        </div>
+        <?php else: ?>
         <div class="col-md-6 mb-3">
             <label class="form-label required-field">Сумма гарантии (руб)</label>
            <input type="text" class="form-control" name="amount" required
@@ -865,6 +987,7 @@ require_once 'header.php';
                    min="<?= date('Y-m-d') ?>"
                    placeholder="Выберите дату окончания гарантии">
         </div>
+        <?php endif; ?>
     </div>
 
     <div class="row">
@@ -894,8 +1017,16 @@ require_once 'header.php';
             <div class="row mt-3">
                 <div class="col-md-6">
                     <label class="form-label">ИНН заказчика
+                        <?php if (!$isBeneficiary): ?>
                         <span class="help-icon" data-bs-toggle="tooltip" data-bs-placement="top" title="ИНН можно найти в реквизитах проекта или скане контракта.">?</span>
+                        <?php endif; ?>
                     </label>
+                    <?php if ($isBeneficiary): ?>
+                        <input type="text" class="form-control bg-light" name="customer_inn" id="customerInn"
+                               maxlength="12" readonly
+                               value="<?= htmlspecialchars($beneficiaryProfileInn) ?>"
+                               placeholder="10 или 12 цифр">
+                    <?php else: ?>
                     <div class="input-group">
                         <input type="text" class="form-control" name="customer_inn" id="customerInn" 
                                maxlength="12"
@@ -904,27 +1035,32 @@ require_once 'header.php';
                             <i class="bi bi-search"></i>
                         </button>
                     </div>
+                    <?php endif; ?>
                 </div>
                 <div class="col-md-6">
                     <label class="form-label">Наименование заказчика</label>
-                    <input type="text" class="form-control" name="customer_name" id="customerName" 
-                           readonly placeholder="Появится автоматически">
+                    <input type="text" class="form-control<?= $isBeneficiary ? ' bg-light' : '' ?>" name="customer_name" id="customerName"
+                           <?= $isBeneficiary ? 'readonly' : 'readonly' ?>
+                           value="<?= $isBeneficiary ? htmlspecialchars($beneficiaryProfileCompany) : '' ?>"
+                           placeholder="<?= $isBeneficiary ? '' : 'Появится автоматически' ?>">
                 </div>
             </div>
         </div>
     </div>
 
     <div class="row">
-        <div class="col-md-6 mb-3">
+        <div class="col-md-<?= $isBeneficiary ? '12' : '6' ?> mb-3">
             <label class="form-label">Ссылка на закупку</label>
             <input type="url" class="form-control" name="purchase_link" id="purchaseLink"
                    placeholder="https://zakupki.gov.ru/...">
         </div>
+        <?php if (!$isBeneficiary): ?>
         <div class="col-md-6 mb-3">
             <label class="form-label">В каких банках были отказы</label>
             <input type="text" class="form-control" name="declined_banks"
                    placeholder="Перечислите банки через запятую">
         </div>
+        <?php endif; ?>
     </div>
 
     <div class="row bg-provision-extras-row mb-3">
@@ -1036,6 +1172,9 @@ require_once 'header.php';
 <script>
 const FINBUILD_APP_DOC_ACCEPT = <?= json_encode(finbuild_application_document_accept_attribute(), JSON_UNESCAPED_UNICODE) ?>;
 const FINBUILD_APP_DOC_FORMATS_HINT = <?= json_encode('Поддерживаются: ' . finbuild_application_document_upload_hint(), JSON_UNESCAPED_UNICODE) ?>;
+const IS_BENEFICIARY = <?= $isBeneficiary ? 'true' : 'false' ?>;
+const BENEFICIARY_INN = <?= json_encode($beneficiaryProfileInn, JSON_UNESCAPED_UNICODE) ?>;
+const BENEFICIARY_COMPANY = <?= json_encode($beneficiaryProfileCompany, JSON_UNESCAPED_UNICODE) ?>;
 // JavaScript код остается без изменений
 document.addEventListener('DOMContentLoaded', function() {
     const productType = document.getElementById('productType');
@@ -1254,10 +1393,10 @@ function fetchPurchaseContractByNumber(showErrors) {
                     priceInput.value = formatAmountWithSpaces(p.toFixed(2).replace('.', ','));
                 }
             }
-            if (data.customer_inn && customerInnInput) {
+            if (data.customer_inn && customerInnInput && !IS_BENEFICIARY) {
                 customerInnInput.value = data.customer_inn;
             }
-            if (data.customer_name && customerNameInput) {
+            if (data.customer_name && customerNameInput && !IS_BENEFICIARY) {
                 customerNameInput.value = data.customer_name;
             }
         })
@@ -1312,7 +1451,11 @@ let currentProductType = '';
             }
             updateDocumentsSection('bg');
             // Добавляем обработчики после рендера DOM
-            setTimeout(() => setupDynamicListeners('bg'), 100);
+            setTimeout(() => {
+                setupDynamicListeners('bg');
+                fillBeneficiaryCustomerFields();
+                syncBeneficiaryAmountMode();
+            }, 100);
         } else if (value === 'credit') {
             productDetailsContent.appendChild(creditTemplate.content.cloneNode(true));
             if (collateralSection) {
@@ -1392,6 +1535,25 @@ function setupDynamicListeners(productType) {
 
 // Обновление секции документов
 function updateDocumentsSection(productType) {
+    if (IS_BENEFICIARY) {
+        documentsContent.innerHTML = `
+            <div class="mb-3">
+                <label class="form-label fw-bold">Документы</label>
+                <div class="file-upload-area" onclick="document.getElementById('other_documents').click()">
+                    <i class="bi bi-cloud-upload fs-1 text-muted d-block mb-2"></i>
+                    <p class="mb-1">Перетащите файлы сюда или нажмите для выбора</p>
+                    <small class="text-muted">${FINBUILD_APP_DOC_FORMATS_HINT}. Можно прикрепить несколько файлов (необязательно).</small>
+                </div>
+                <input type="file" id="other_documents" name="other_documents[]"
+                       multiple accept="${FINBUILD_APP_DOC_ACCEPT}"
+                       style="display: none;" onchange="handleFileSelection(this)">
+                <div class="file-list" id="other_documents_list"></div>
+            </div>
+        `;
+        initializeFileUploads();
+        return;
+    }
+
     const amountInput = document.querySelector('input[name="amount"]');
     const fzTypeSelect = document.querySelector('select[name="fz_type"]');
     
@@ -1500,6 +1662,50 @@ function updateDocumentsSection(productType) {
 
     documentsContent.innerHTML = html;
     initializeFileUploads();
+}
+
+function fillBeneficiaryCustomerFields() {
+    if (!IS_BENEFICIARY) return;
+    const customerInnInput = document.getElementById('customerInn');
+    const customerNameInput = document.getElementById('customerName');
+    if (customerInnInput) {
+        if (!customerInnInput.value && BENEFICIARY_INN) {
+            customerInnInput.value = BENEFICIARY_INN;
+        }
+        customerInnInput.readOnly = true;
+        customerInnInput.classList.add('bg-light');
+    }
+    if (customerNameInput) {
+        if (!customerNameInput.value && BENEFICIARY_COMPANY) {
+            customerNameInput.value = BENEFICIARY_COMPANY;
+        }
+        customerNameInput.readOnly = true;
+        customerNameInput.classList.add('bg-light');
+    }
+}
+
+function syncBeneficiaryAmountMode() {
+    if (!IS_BENEFICIARY) return;
+    const fixed = document.getElementById('amountModeFixed');
+    const open = document.getElementById('amountModeOpen');
+    const wrap = document.getElementById('beneficiaryAmountWrap');
+    const hint = document.getElementById('beneficiaryLimitHint');
+    const amountInput = document.getElementById('beneficiaryAmount');
+    const isFixed = !open || open.checked === false;
+    if (wrap) wrap.style.display = isFixed ? '' : 'none';
+    if (hint) hint.style.display = isFixed ? 'none' : '';
+    if (amountInput) {
+        amountInput.required = !!isFixed;
+        if (!isFixed) amountInput.classList.remove('is-invalid');
+    }
+    if (fixed && !fixed._bound) {
+        fixed.addEventListener('change', syncBeneficiaryAmountMode);
+        fixed._bound = true;
+    }
+    if (open && !open._bound) {
+        open.addEventListener('change', syncBeneficiaryAmountMode);
+        open._bound = true;
+    }
 }
 
 // Форматирование суммы с разделением по разрядам (для БГ)
@@ -1758,28 +1964,45 @@ function validateForm() {
             showError(guaranteeType, 'Выберите вид гарантии');
             isValid = false;
         }
-        
-        if (amount && !amount.value) {
-            showError(amount, 'Введите сумму гарантии');
-            isValid = false;
-        } else if (amount && amount.value && amount.value <= 0) {
-            showError(amount, 'Сумма должна быть больше 0');
-            isValid = false;
+
+        const amountModeOpen = document.getElementById('amountModeOpen');
+        const skipAmount = IS_BENEFICIARY && amountModeOpen && amountModeOpen.checked;
+        if (!skipAmount) {
+            if (amount && !amount.value) {
+                showError(amount, 'Введите сумму гарантии');
+                isValid = false;
+            } else if (amount && amount.value && amount.value <= 0) {
+                showError(amount, 'Сумма должна быть больше 0');
+                isValid = false;
+            }
+        }
+
+        if (IS_BENEFICIARY) {
+            const principalEmail = document.getElementById('principalEmail');
+            if (principalEmail && !principalEmail.value.trim()) {
+                showError(principalEmail, 'Укажите e-mail принципала');
+                isValid = false;
+            } else if (principalEmail && principalEmail.value.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(principalEmail.value.trim())) {
+                showError(principalEmail, 'Некорректный e-mail');
+                isValid = false;
+            }
         }
         
         if (termBg && !termBg.value) {
-        showError(termBg, 'Выберите дату окончания гарантии');
-        isValid = false;
-    } else if (termBg && termBg.value) {
-        const selectedDate = new Date(termBg.value);
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        
-        if (selectedDate <= today) {
-            showError(termBg, 'Дата должна быть в будущем');
-            isValid = false;
+            if (!IS_BENEFICIARY) {
+                showError(termBg, 'Выберите дату окончания гарантии');
+                isValid = false;
+            }
+        } else if (termBg && termBg.value) {
+            const selectedDate = new Date(termBg.value);
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            
+            if (selectedDate <= today) {
+                showError(termBg, 'Дата должна быть в будущем');
+                isValid = false;
+            }
         }
-    }
         
     } else if (productType === 'credit') {
         const loanType = document.querySelector('select[name="loan_type"]');
@@ -1808,11 +2031,13 @@ function validateForm() {
         }
     }
     
-    // Проверка файлов
-    const financialReport = document.getElementById('financial_report');
-    if (financialReport && financialReport.files.length === 0) {
-        showError(financialReport, 'Загрузите бухгалтерскую отчетность');
-        isValid = false;
+    // Проверка файлов (у заказчика документы необязательны)
+    if (!IS_BENEFICIARY) {
+        const financialReport = document.getElementById('financial_report');
+        if (financialReport && financialReport.files.length === 0) {
+            showError(financialReport, 'Загрузите бухгалтерскую отчетность');
+            isValid = false;
+        }
     }
     
     if (!isValid) {

@@ -190,11 +190,17 @@ if (!function_exists('finbuild_chat_sender_html')) {
 
 if (!function_exists('finbuild_chat_render_messages_html')) {
     /**
-     * @param array<int,array<string,mixed>> $messages Rows from application_product_chats join users
+     * @param array<int,array<string,mixed>> $messages Rows from application(_product)_chats join users
      * @param array<int,array<int,array<string,mixed>>> $messageFiles message_id => files[]
      * @param array<string, mixed>|null $viewer
      */
-    function finbuild_chat_render_messages_html(array $messages, array $messageFiles, int $currentUserId, ?array $viewer = null): string
+    function finbuild_chat_render_messages_html(
+        array $messages,
+        array $messageFiles,
+        int $currentUserId,
+        ?array $viewer = null,
+        string $fileKind = 'chat'
+    ): string
     {
         if (empty($messages)) {
             return '<div class="message-system"><div class="message-content"><i class="bi bi-chat-dots me-2"></i>Чат начат. Напишите первое сообщение.</div></div>';
@@ -237,7 +243,7 @@ if (!function_exists('finbuild_chat_render_messages_html')) {
                 foreach ($files as $file) {
                     $fileId = (int) ($file['id'] ?? 0);
                     $path = $fileId > 0
-                        ? finbuild_upload_file_url('chat', $fileId)
+                        ? finbuild_upload_file_url($fileKind, $fileId)
                         : (string) ($file['file_path'] ?? '');
                     $original = (string)($file['original_name'] ?? '');
                     $size = $file['file_size'] ?? 0;
@@ -257,6 +263,170 @@ if (!function_exists('finbuild_chat_render_messages_html')) {
         }
 
         return $out;
+    }
+}
+
+if (!function_exists('finbuild_unread_chat_union_sql')) {
+    /** Сообщения чата заявки + чатов продуктов (для списков и бейджей). */
+    function finbuild_unread_chat_union_sql(): string
+    {
+        return "(
+            SELECT ac.application_id, ac.id AS chat_id, ac.created_at, ac.user_id, ac.is_read, ac.thread, u.role AS sender_role
+            FROM application_chats ac
+            INNER JOIN users u ON u.id = ac.user_id
+            UNION ALL
+            SELECT ap.application_id, apc.id AS chat_id, apc.created_at, apc.user_id, apc.is_read, apc.thread, u.role AS sender_role
+            FROM application_product_chats apc
+            INNER JOIN application_products ap ON ap.id = apc.application_product_id
+            INNER JOIN users u ON u.id = apc.user_id
+            WHERE apc.thread = 'principal'
+        )";
+    }
+}
+
+if (!function_exists('finbuild_unread_chat_join_condition')) {
+    /**
+     * Условие JOIN непрочитанных для alias `uc` и заявки `a`.
+     * Для не-менеджеров использует плейсхолдер :current_user.
+     */
+    function finbuild_unread_chat_join_condition(string $userRole): string
+    {
+        if (function_exists('finbuild_is_manager') && finbuild_is_manager($userRole)) {
+            return "uc.is_read = 0 AND (
+                (uc.thread = 'beneficiary' AND uc.sender_role = 'beneficiary')
+                OR (uc.thread = 'principal' AND uc.sender_role IN ('client', 'partner'))
+            )";
+        }
+        if ($userRole === 'beneficiary') {
+            return "uc.is_read = 0 AND uc.thread = 'beneficiary' AND uc.user_id != :current_user";
+        }
+        return "uc.is_read = 0 AND uc.thread = 'principal' AND uc.user_id != :current_user";
+    }
+}
+
+if (!function_exists('finbuild_application_chat_counterpart_user_id')) {
+    function finbuild_application_chat_counterpart_user_id(array $application, string $thread): int
+    {
+        $ownerId = (int) ($application['created_by'] ?? $application['application_owner_id'] ?? 0);
+        $principalId = (int) ($application['principal_user_id'] ?? 0);
+        if ($thread === 'beneficiary') {
+            return $ownerId;
+        }
+        return $principalId > 0 ? $principalId : $ownerId;
+    }
+}
+
+if (!function_exists('finbuild_application_chat_unread_count')) {
+    function finbuild_application_chat_unread_count(
+        PDO $pdo,
+        int $applicationId,
+        string $userRole,
+        int $userId,
+        array $application,
+        string $activeThread
+    ): int {
+        $thread = function_exists('finbuild_chat_normalize_thread')
+            ? finbuild_chat_normalize_thread($activeThread)
+            : ($activeThread === 'beneficiary' ? 'beneficiary' : 'principal');
+
+        if (function_exists('finbuild_is_manager') && finbuild_is_manager($userRole)) {
+            if ($thread === 'beneficiary') {
+                $stmt = $pdo->prepare(
+                    "SELECT COUNT(*) FROM application_chats c
+                     INNER JOIN users u ON u.id = c.user_id
+                     WHERE c.application_id = ? AND c.thread = 'beneficiary'
+                       AND c.is_read = 0 AND u.role = 'beneficiary'"
+                );
+                $stmt->execute([$applicationId]);
+            } else {
+                $stmt = $pdo->prepare(
+                    "SELECT COUNT(*) FROM application_chats c
+                     INNER JOIN users u ON u.id = c.user_id
+                     WHERE c.application_id = ? AND c.thread = 'principal'
+                       AND c.is_read = 0 AND u.role IN ('client', 'partner')"
+                );
+                $stmt->execute([$applicationId]);
+            }
+        } else {
+            $stmt = $pdo->prepare(
+                "SELECT COUNT(*) FROM application_chats
+                 WHERE application_id = ? AND thread = ? AND is_read = 0 AND user_id != ?"
+            );
+            $stmt->execute([$applicationId, $thread, $userId]);
+        }
+        return (int) ($stmt->fetchColumn() ?: 0);
+    }
+}
+
+if (!function_exists('finbuild_application_chat_unread_total')) {
+    /**
+     * @param list<string> $threads
+     */
+    function finbuild_application_chat_unread_total(
+        PDO $pdo,
+        int $applicationId,
+        string $userRole,
+        int $userId,
+        array $application,
+        array $threads
+    ): int {
+        $total = 0;
+        foreach ($threads as $thread) {
+            $total += finbuild_application_chat_unread_count(
+                $pdo,
+                $applicationId,
+                $userRole,
+                $userId,
+                $application,
+                (string) $thread
+            );
+        }
+        return $total;
+    }
+}
+
+if (!function_exists('finbuild_application_chat_mark_read')) {
+    function finbuild_application_chat_mark_read(
+        PDO $pdo,
+        int $applicationId,
+        string $userRole,
+        int $userId,
+        array $application,
+        string $activeThread
+    ): void {
+        $thread = function_exists('finbuild_chat_normalize_thread')
+            ? finbuild_chat_normalize_thread($activeThread)
+            : ($activeThread === 'beneficiary' ? 'beneficiary' : 'principal');
+
+        if (function_exists('finbuild_is_manager') && finbuild_is_manager($userRole)) {
+            if ($thread === 'beneficiary') {
+                $stmt = $pdo->prepare(
+                    "UPDATE application_chats c
+                     INNER JOIN users u ON u.id = c.user_id
+                     SET c.is_read = 1
+                     WHERE c.application_id = ? AND c.thread = 'beneficiary'
+                       AND c.is_read = 0 AND u.role = 'beneficiary'"
+                );
+                $stmt->execute([$applicationId]);
+            } else {
+                $stmt = $pdo->prepare(
+                    "UPDATE application_chats c
+                     INNER JOIN users u ON u.id = c.user_id
+                     SET c.is_read = 1
+                     WHERE c.application_id = ? AND c.thread = 'principal'
+                       AND c.is_read = 0 AND u.role IN ('client', 'partner')"
+                );
+                $stmt->execute([$applicationId]);
+            }
+            return;
+        }
+
+        $stmt = $pdo->prepare(
+            "UPDATE application_chats
+             SET is_read = 1
+             WHERE application_id = ? AND thread = ? AND user_id != ? AND is_read = 0"
+        );
+        $stmt->execute([$applicationId, $thread, $userId]);
     }
 }
 

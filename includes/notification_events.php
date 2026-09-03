@@ -297,7 +297,7 @@ function notify_product_chat_message(
     bool $hasAttachments
 ): void {
     $stmt = $pdo->prepare(
-        'SELECT ap.application_id, ap.bank_name, a.created_by, a.assigned_to, a.company_name, u.role AS sender_role
+        'SELECT ap.application_id, ap.bank_name, a.created_by, a.principal_user_id, a.assigned_to, a.company_name, u.role AS sender_role
          FROM application_products ap
          INNER JOIN applications a ON ap.application_id = a.id
          INNER JOIN users u ON u.id = ?
@@ -311,6 +311,8 @@ function notify_product_chat_message(
     $senderRole = $row['sender_role'] ?? '';
     $applicationId = (int) $row['application_id'];
     $ownerId = (int) $row['created_by'];
+    $principalId = (int) ($row['principal_user_id'] ?? 0);
+    $notifyUserId = $principalId > 0 ? $principalId : $ownerId;
     $assignedTo = isset($row['assigned_to']) ? (int) $row['assigned_to'] : 0;
     $companyName = trim((string) ($row['company_name'] ?? ''));
     $bankName = trim((string) ($row['bank_name'] ?? ''));
@@ -332,10 +334,10 @@ function notify_product_chat_message(
     $productLabel = $bankName !== '' ? htmlspecialchars($bankName) : '';
 
     if (finbuild_is_manager($senderRole)) {
-        if ($ownerId <= 0 || $ownerId === $senderUserId) {
+        if ($notifyUserId <= 0 || $notifyUserId === $senderUserId) {
             return;
         }
-        $email = finbuild_user_notification_email($pdo, $ownerId);
+        $email = finbuild_user_notification_email($pdo, $notifyUserId);
         if (!$email) {
             return;
         }
@@ -382,6 +384,97 @@ function notify_product_chat_message(
     }
     foreach ($recipients as $to) {
         finbuild_send_mail($to, $subj, $html);
+    }
+}
+
+/**
+ * Сообщение в чате заявки (не продукт): менеджеру или заказчику/клиенту в зависимости от thread.
+ */
+function notify_application_chat_message(
+    PDO $pdo,
+    int $applicationId,
+    int $senderUserId,
+    string $thread,
+    string $messageText,
+    bool $hasAttachments
+): void {
+    $stmt = $pdo->prepare(
+        'SELECT a.id, a.created_by, a.principal_user_id, a.assigned_to, a.company_name, u.role AS sender_role
+         FROM applications a
+         INNER JOIN users u ON u.id = ?
+         WHERE a.id = ?'
+    );
+    $stmt->execute([$senderUserId, $applicationId]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$row) {
+        return;
+    }
+
+    $senderRole = (string) ($row['sender_role'] ?? '');
+    $ownerId = (int) $row['created_by'];
+    $principalId = (int) ($row['principal_user_id'] ?? 0);
+    $assignedTo = isset($row['assigned_to']) ? (int) $row['assigned_to'] : 0;
+    $companyName = trim((string) ($row['company_name'] ?? ''));
+    $thread = $thread === 'beneficiary' ? 'beneficiary' : 'principal';
+
+    $subject = 'Новое сообщение по заявке №' . $applicationId;
+    if ($companyName !== '') {
+        $subject .= ' (' . $companyName . ')';
+    }
+
+    $preview = trim($messageText);
+    if ($preview === '' && $hasAttachments) {
+        $preview = '(прикреплён файл)';
+    }
+    if (mb_strlen($preview) > 300) {
+        $preview = mb_substr($preview, 0, 297) . '…';
+    }
+
+    $base = finbuild_site_base_url();
+    $link = $base !== '' ? $base . '/application_details.php?id=' . $applicationId : '';
+
+    if (finbuild_is_manager($senderRole)) {
+        $recipientId = $thread === 'beneficiary'
+            ? $ownerId
+            : ($principalId > 0 ? $principalId : $ownerId);
+        if ($recipientId <= 0 || $recipientId === $senderUserId) {
+            return;
+        }
+        $email = finbuild_user_notification_email($pdo, $recipientId);
+        if (!$email) {
+            return;
+        }
+        $html = '<p>По вашей заявке пришло сообщение в чате.</p>';
+        $html .= '<blockquote style="border-left:3px solid #ccc;padding-left:10px;">' . htmlspecialchars($preview) . '</blockquote>';
+        if ($link !== '') {
+            $html .= '<p><a href="' . htmlspecialchars($link) . '">Открыть чат</a></p>';
+        }
+        finbuild_send_mail($email, $subject, $html);
+        return;
+    }
+
+    $recipients = [];
+    if ($assignedTo > 0) {
+        $e = finbuild_user_notification_email($pdo, $assignedTo);
+        if ($e) {
+            $recipients[] = $e;
+        }
+    }
+    if (empty($recipients)) {
+        $recipients = finbuild_manager_fallback_emails();
+    }
+    if (empty($recipients)) {
+        return;
+    }
+    $recipients = array_values(array_unique($recipients));
+    $party = $thread === 'beneficiary' ? 'заказчика' : 'клиента';
+    $html = '<p>Сообщение в чате заявки от ' . $party . '.</p>';
+    $html .= '<blockquote style="border-left:3px solid #ccc;padding-left:10px;">' . htmlspecialchars($preview) . '</blockquote>';
+    if ($link !== '') {
+        $html .= '<p><a href="' . htmlspecialchars($link) . '">Открыть чат</a></p>';
+    }
+    foreach ($recipients as $to) {
+        finbuild_send_mail($to, $subject, $html);
     }
 }
 

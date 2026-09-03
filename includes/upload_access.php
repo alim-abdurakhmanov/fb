@@ -14,6 +14,7 @@ function finbuild_upload_kinds(): array
         'bank_msg' => 'application_product_bank_case_message_files',
         'bank_log' => 'application_product_bank_case_status_log_files',
         'chat' => 'application_product_chat_files',
+        'app_chat' => 'application_chat_files',
         'avatar' => 'users',
     ];
 }
@@ -161,6 +162,9 @@ function finbuild_upload_load(PDO $pdo, string $kind, int $id): ?array
         case 'chat':
             $stmt = $pdo->prepare('SELECT file_path, original_name FROM application_product_chat_files WHERE id = ? LIMIT 1');
             break;
+        case 'app_chat':
+            $stmt = $pdo->prepare('SELECT file_path, original_name FROM application_chat_files WHERE id = ? LIMIT 1');
+            break;
         case 'avatar':
             $stmt = $pdo->prepare('SELECT avatar_path AS file_path, CONCAT("avatar_", id, ".jpg") AS original_name FROM users WHERE id = ? AND avatar_path IS NOT NULL AND avatar_path <> "" LIMIT 1');
             break;
@@ -245,23 +249,31 @@ function finbuild_upload_can_access(PDO $pdo, string $kind, int $id, array $user
                 return false;
             }
             $stmt = $pdo->prepare(
-                'SELECT ap.application_id, a.created_by
+                'SELECT ap.application_id
                  FROM application_product_chat_files f
                  INNER JOIN application_product_chats c ON c.id = f.chat_message_id
                  INNER JOIN application_products ap ON ap.id = c.application_product_id
-                 INNER JOIN applications a ON a.id = ap.application_id
                  WHERE f.id = ?
                  LIMIT 1'
             );
             $stmt->execute([$id]);
-            $row = $stmt->fetch(PDO::FETCH_ASSOC);
-            if (!$row) {
+            $applicationId = (int) $stmt->fetchColumn();
+            return finbuild_upload_can_access_application_id($pdo, $applicationId, $user);
+
+        case 'app_chat':
+            if (!finbuild_can_use_product_chat($user)) {
                 return false;
             }
-            if (finbuild_is_manager($role) || finbuild_is_analyst_role($role) || $isAnalystFlag) {
-                return finbuild_upload_can_access_application_id($pdo, (int) $row['application_id'], $user);
-            }
-            return (int) $row['created_by'] === $userId;
+            $stmt = $pdo->prepare(
+                'SELECT c.application_id
+                 FROM application_chat_files f
+                 INNER JOIN application_chats c ON c.id = f.chat_message_id
+                 WHERE f.id = ?
+                 LIMIT 1'
+            );
+            $stmt->execute([$id]);
+            $applicationId = (int) $stmt->fetchColumn();
+            return finbuild_upload_can_access_application_id($pdo, $applicationId, $user);
 
         case 'avatar':
             return $userId > 0;

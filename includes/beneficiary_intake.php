@@ -32,6 +32,144 @@ function finbuild_chat_normalize_thread(string $thread): string
     return $thread === 'beneficiary' ? 'beneficiary' : 'principal';
 }
 
+/** Чаты продуктов только с клиентом, не с заказчиком. */
+function finbuild_chat_thread_has_product_chats(string $thread): bool
+{
+    return finbuild_chat_normalize_thread($thread) === 'principal';
+}
+
+/**
+ * Метка заявки, пришедшей от заказчика (бенефициара).
+ *
+ * @param array<string, mixed> $application
+ * @return array{is_intake:bool, badge:string, class:string, hint:string, customer:string}
+ */
+function finbuild_application_intake_mark(array $application): array
+{
+    $status = (string) ($application['intake_status'] ?? '');
+    if ($status === '') {
+        return ['is_intake' => false, 'badge' => '', 'class' => '', 'hint' => '', 'customer' => ''];
+    }
+    $customer = trim((string) ($application['customer_name'] ?? ''));
+    if ($status === 'pending_review') {
+        return [
+            'is_intake' => true,
+            'badge' => 'от заказчика',
+            'class' => 'bg-warning text-dark',
+            'hint' => 'Заявка от заказчика, на рассмотрении',
+            'customer' => $customer,
+        ];
+    }
+    if ($status === 'rejected') {
+        return [
+            'is_intake' => true,
+            'badge' => 'от заказчика',
+            'class' => 'bg-secondary',
+            'hint' => 'Заявка от заказчика отклонена',
+            'customer' => $customer,
+        ];
+    }
+    return [
+        'is_intake' => true,
+        'badge' => 'от заказчика',
+        'class' => 'bg-warning text-dark',
+        'hint' => 'Заявка пришла от заказчика',
+        'customer' => $customer,
+    ];
+}
+
+/**
+ * Понятное описание суммы/лимита после одобрения (или запроса до него).
+ *
+ * @param array<string, mixed> $application
+ */
+function finbuild_application_intake_amount_summary(array $application): string
+{
+    $status = (string) ($application['intake_status'] ?? '');
+    $mode = (string) ($application['amount_mode'] ?? 'fixed');
+    $approvedAmount = isset($application['approved_amount']) ? (float) $application['approved_amount'] : 0.0;
+    $approvedLimit = isset($application['approved_limit']) ? (float) $application['approved_limit'] : 0.0;
+    $requested = isset($application['requested_amount']) ? (float) $application['requested_amount'] : 0.0;
+    $amount = isset($application['amount']) ? (float) $application['amount'] : 0.0;
+
+    $fmt = static function (float $v): string {
+        return number_format($v, 0, '.', ' ') . ' ₽';
+    };
+
+    if ($status === 'approved') {
+        if ($mode === 'open' && $approvedLimit > 0) {
+            return 'Установлен лимит: ' . $fmt($approvedLimit);
+        }
+        if ($approvedAmount > 0) {
+            return 'Запрашиваемая сумма: ' . $fmt($approvedAmount);
+        }
+        if ($amount > 0) {
+            return 'Запрашиваемая сумма: ' . $fmt($amount);
+        }
+        return 'Одобрено';
+    }
+
+    if ($mode === 'open') {
+        return 'Без конкретной суммы — нужен лимит';
+    }
+    if ($requested > 0) {
+        return 'Запрашиваемая сумма: ' . $fmt($requested);
+    }
+    if ($amount > 0) {
+        return 'Запрашиваемая сумма: ' . $fmt($amount);
+    }
+    return '';
+}
+
+function finbuild_intake_store_created_client_credentials(int $applicationId, string $email, string $password): void
+{
+    if ($applicationId <= 0 || $email === '' || $password === '') {
+        return;
+    }
+    if (!isset($_SESSION['intake_client_credentials']) || !is_array($_SESSION['intake_client_credentials'])) {
+        $_SESSION['intake_client_credentials'] = [];
+    }
+    $_SESSION['intake_client_credentials'][$applicationId] = [
+        'email' => $email,
+        'password' => $password,
+        'saved_at' => time(),
+    ];
+}
+
+/**
+ * @return array{email:string,password:string}|null
+ */
+function finbuild_intake_peek_created_client_credentials(int $applicationId): ?array
+{
+    $row = $_SESSION['intake_client_credentials'][$applicationId] ?? null;
+    if (!is_array($row)) {
+        return null;
+    }
+    $email = trim((string) ($row['email'] ?? ''));
+    $password = (string) ($row['password'] ?? '');
+    if ($email === '' || $password === '') {
+        return null;
+    }
+    return ['email' => $email, 'password' => $password];
+}
+
+function finbuild_intake_clear_created_client_credentials(int $applicationId): void
+{
+    if (isset($_SESSION['intake_client_credentials'][$applicationId])) {
+        unset($_SESSION['intake_client_credentials'][$applicationId]);
+    }
+}
+
+function finbuild_application_intake_badge_html(array $application): string
+{
+    $mark = finbuild_application_intake_mark($application);
+    if (!$mark['is_intake']) {
+        return '';
+    }
+    return '<span class="badge ' . htmlspecialchars($mark['class']) . '" title="'
+        . htmlspecialchars($mark['hint']) . '">' . htmlspecialchars($mark['badge']) . '</span>';
+}
+
 /**
  * Threads, доступные зрителю для заявки.
  *
@@ -47,6 +185,9 @@ function finbuild_chat_allowed_threads_for_viewer(?array $user, ?array $applicat
     if (function_exists('finbuild_is_manager') && finbuild_is_manager($role)) {
         if ($intake === '' || $intake === null) {
             return ['principal'];
+        }
+        if ($intake === 'rejected') {
+            return ['beneficiary'];
         }
         if ($intake === 'pending_review' && empty($application['principal_user_id'])) {
             return ['beneficiary'];
@@ -118,12 +259,14 @@ function finbuild_find_or_create_principal_client(PDO $pdo, string $inn, string 
 }
 
 /**
- * Одобрить или отклонить intake-заявку.
+ * Одобрить, отклонить или снять одобрение intake-заявки.
  *
  * @param array{
- *   action: 'approve_amount'|'approve_limit'|'reject',
+ *   action: 'approve_amount'|'approve_limit'|'approve'|'reject'|'reopen'|'dismiss_credentials',
+ *   amount_mode?: 'fixed'|'open',
  *   principal_inn?: string,
  *   principal_company_name?: string,
+ *   principal_email?: string,
  *   approved_amount?: float|null,
  *   approved_limit?: float|null,
  *   client_email?: string,
@@ -132,12 +275,18 @@ function finbuild_find_or_create_principal_client(PDO $pdo, string $inn, string 
  *   client_last_name?: string,
  *   reject_reason?: string
  * } $payload
- * @return array{ok:bool,error?:string,principal_user_id?:int,created_client?:bool,plain_password?:string}
+ * @return array{ok:bool,error?:string,principal_user_id?:int,created_client?:bool,plain_password?:string,client_email?:string}
  */
 function finbuild_intake_review_application(PDO $pdo, int $applicationId, array $reviewer, array $payload): array
 {
     if (!function_exists('finbuild_is_manager') || !finbuild_is_manager((string) ($reviewer['role'] ?? ''))) {
         return ['ok' => false, 'error' => 'Недостаточно прав'];
+    }
+
+    $action = (string) ($payload['action'] ?? '');
+    if ($action === 'dismiss_credentials') {
+        finbuild_intake_clear_created_client_credentials($applicationId);
+        return ['ok' => true];
     }
 
     $pdo->beginTransaction();
@@ -149,13 +298,38 @@ function finbuild_intake_review_application(PDO $pdo, int $applicationId, array 
             $pdo->rollBack();
             return ['ok' => false, 'error' => 'Заявка не найдена'];
         }
-        if (($app['intake_status'] ?? '') !== 'pending_review') {
+
+        $intakeStatus = (string) ($app['intake_status'] ?? '');
+        if ($intakeStatus === '') {
             $pdo->rollBack();
-            return ['ok' => false, 'error' => 'Заявка уже рассмотрена или не является запросом заказчика'];
+            return ['ok' => false, 'error' => 'Это не заявка от заказчика'];
         }
 
-        $action = (string) ($payload['action'] ?? '');
         $reviewerId = (int) ($reviewer['id'] ?? 0);
+
+        if ($action === 'reopen') {
+            if ($intakeStatus !== 'approved') {
+                $pdo->rollBack();
+                return ['ok' => false, 'error' => 'Снять одобрение можно только у одобренной заявки'];
+            }
+            $upd = $pdo->prepare(
+                'UPDATE applications SET
+                    intake_status = ?,
+                    approved_amount = NULL,
+                    approved_limit = NULL,
+                    intake_reviewed_at = NULL,
+                    intake_reviewed_by = NULL
+                 WHERE id = ?'
+            );
+            $upd->execute(['pending_review', $applicationId]);
+            $pdo->commit();
+            return ['ok' => true];
+        }
+
+        if ($intakeStatus !== 'pending_review') {
+            $pdo->rollBack();
+            return ['ok' => false, 'error' => 'Заявка уже рассмотрена или не ожидает одобрения'];
+        }
 
         if ($action === 'reject') {
             $upd = $pdo->prepare(
@@ -166,12 +340,20 @@ function finbuild_intake_review_application(PDO $pdo, int $applicationId, array 
             return ['ok' => true];
         }
 
+        // Единое одобрение: action=approve + amount_mode, либо старые approve_amount / approve_limit
+        $amountMode = (string) ($payload['amount_mode'] ?? '');
+        if ($action === 'approve') {
+            $action = $amountMode === 'open' ? 'approve_limit' : 'approve_amount';
+        }
+
         $principalInn = preg_replace('/\D+/', '', (string) ($payload['principal_inn'] ?? $app['principal_inn'] ?? '')) ?? '';
         $principalCompany = trim((string) ($payload['principal_company_name'] ?? $app['principal_company_name'] ?? ''));
         if ($principalInn === '' || $principalCompany === '') {
             $pdo->rollBack();
             return ['ok' => false, 'error' => 'Укажите ИНН и компанию принципала'];
         }
+
+        $principalEmail = trim((string) ($payload['principal_email'] ?? $payload['client_email'] ?? $app['principal_email'] ?? ''));
 
         $approvedAmount = null;
         $approvedLimit = null;
@@ -186,6 +368,7 @@ function finbuild_intake_review_application(PDO $pdo, int $applicationId, array 
                 return ['ok' => false, 'error' => 'Укажите одобряемую сумму'];
             }
             $workingAmount = $approvedAmount;
+            $amountMode = 'fixed';
         } elseif ($action === 'approve_limit') {
             $approvedLimit = isset($payload['approved_limit']) ? (float) $payload['approved_limit'] : 0.0;
             if ($approvedLimit <= 0) {
@@ -193,26 +376,38 @@ function finbuild_intake_review_application(PDO $pdo, int $applicationId, array 
                 return ['ok' => false, 'error' => 'Укажите лимит'];
             }
             $workingAmount = $approvedLimit;
+            $amountMode = 'open';
         } else {
             $pdo->rollBack();
             return ['ok' => false, 'error' => 'Неизвестное действие'];
         }
 
-        $clientResult = finbuild_find_or_create_principal_client(
-            $pdo,
-            $principalInn,
-            $principalCompany,
-            [
-                'email' => (string) ($payload['client_email'] ?? ''),
-                'phone' => (string) ($payload['client_phone'] ?? ''),
-                'first_name' => (string) ($payload['client_first_name'] ?? ''),
-                'last_name' => (string) ($payload['client_last_name'] ?? ''),
-            ],
-            $reviewerId > 0 ? $reviewerId : null
-        );
-        if (empty($clientResult['ok'])) {
-            $pdo->rollBack();
-            return ['ok' => false, 'error' => (string) ($clientResult['error'] ?? 'Не удалось создать клиента')];
+        $existingPrincipalId = (int) ($app['principal_user_id'] ?? 0);
+        if ($existingPrincipalId > 0) {
+            $clientResult = [
+                'ok' => true,
+                'user_id' => $existingPrincipalId,
+                'created' => false,
+                'plain_password' => '',
+            ];
+            // Обновим email принципала на заявке, если передали
+        } else {
+            $clientResult = finbuild_find_or_create_principal_client(
+                $pdo,
+                $principalInn,
+                $principalCompany,
+                [
+                    'email' => $principalEmail,
+                    'phone' => (string) ($payload['client_phone'] ?? ''),
+                    'first_name' => (string) ($payload['client_first_name'] ?? ''),
+                    'last_name' => (string) ($payload['client_last_name'] ?? ''),
+                ],
+                $reviewerId > 0 ? $reviewerId : null
+            );
+            if (empty($clientResult['ok'])) {
+                $pdo->rollBack();
+                return ['ok' => false, 'error' => (string) ($clientResult['error'] ?? 'Не удалось создать клиента')];
+            }
         }
 
         $principalUserId = (int) $clientResult['user_id'];
@@ -220,6 +415,7 @@ function finbuild_intake_review_application(PDO $pdo, int $applicationId, array 
             'UPDATE applications SET
                 principal_inn = ?,
                 principal_company_name = ?,
+                principal_email = COALESCE(NULLIF(?, \'\'), principal_email),
                 principal_user_id = ?,
                 company_name = ?,
                 inn = ?,
@@ -234,11 +430,11 @@ function finbuild_intake_review_application(PDO $pdo, int $applicationId, array 
                 status = ?
              WHERE id = ?'
         );
-        $amountMode = $action === 'approve_limit' ? 'open' : 'fixed';
         $requested = $app['requested_amount'] ?? $app['amount'] ?? $workingAmount;
         $upd->execute([
             $principalInn,
             $principalCompany,
+            $principalEmail,
             $principalUserId,
             $principalCompany,
             $principalInn,
@@ -254,11 +450,25 @@ function finbuild_intake_review_application(PDO $pdo, int $applicationId, array 
         ]);
 
         $pdo->commit();
+
+        $plainPassword = (string) ($clientResult['plain_password'] ?? '');
+        $created = !empty($clientResult['created']);
+        if ($created && $plainPassword !== '') {
+            $emailForCreds = $principalEmail;
+            if ($emailForCreds === '') {
+                $eStmt = $pdo->prepare('SELECT email FROM users WHERE id = ? LIMIT 1');
+                $eStmt->execute([$principalUserId]);
+                $emailForCreds = (string) ($eStmt->fetchColumn() ?: '');
+            }
+            finbuild_intake_store_created_client_credentials($applicationId, $emailForCreds, $plainPassword);
+        }
+
         return [
             'ok' => true,
             'principal_user_id' => $principalUserId,
-            'created_client' => !empty($clientResult['created']),
-            'plain_password' => (string) ($clientResult['plain_password'] ?? ''),
+            'created_client' => $created,
+            'plain_password' => $plainPassword,
+            'client_email' => $principalEmail !== '' ? $principalEmail : (string) ($app['principal_email'] ?? ''),
         ];
     } catch (Throwable $e) {
         if ($pdo->inTransaction()) {
