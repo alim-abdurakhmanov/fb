@@ -138,7 +138,7 @@ if (!defined('FINBUILD_ROOT')) {
 }
 
 // Секреты и окружение — из файла .env (см. .env.example). Сам config.php можно коммитить.
-require_once __DIR__ . '/includes/env.php';
+require_once __DIR__ . '/includes/load_env.php';
 finbuild_load_env(__DIR__ . DIRECTORY_SEPARATOR . '.env');
 
 // Настройки базы данных (до getPDO() и finbuild_sync_session_user())
