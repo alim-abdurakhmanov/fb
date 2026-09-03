@@ -81,9 +81,20 @@ function finbuild_roadmap_updated_by_ready(PDO $pdo): bool
     return $ready;
 }
 
-function finbuild_roadmap_can_access(?array $user): bool
+function finbuild_roadmap_can_view(?array $user): bool
+{
+    return finbuild_can('roadmap.view', $user);
+}
+
+function finbuild_roadmap_can_edit(?array $user): bool
 {
     return finbuild_can('roadmap.edit', $user);
+}
+
+/** @deprecated Используйте finbuild_roadmap_can_view / finbuild_roadmap_can_edit */
+function finbuild_roadmap_can_access(?array $user): bool
+{
+    return finbuild_roadmap_can_view($user);
 }
 
 function finbuild_roadmap_assert_application(PDO $pdo, int $applicationId): bool
@@ -422,7 +433,7 @@ function finbuild_roadmap_dispatch(
     string $action,
     string $method
 ): void {
-    if (!finbuild_roadmap_can_access($user)) {
+    if (!finbuild_roadmap_can_view($user)) {
         finbuild_roadmap_send_json(['success' => false, 'error' => 'Доступ запрещён']);
     }
     if ($applicationId <= 0 || !finbuild_roadmap_assert_application($pdo, $applicationId)) {
@@ -439,11 +450,16 @@ function finbuild_roadmap_dispatch(
         if ($action === 'get' && $method === 'GET') {
             finbuild_roadmap_ensure_defaults($pdo, $applicationId, $userId);
             $payload = finbuild_roadmap_fetch($pdo, $applicationId);
+            $payload['can_edit'] = finbuild_roadmap_can_edit($user);
             finbuild_roadmap_send_json(['success' => true] + $payload);
         }
 
         if ($method !== 'POST') {
             finbuild_roadmap_send_json(['success' => false, 'error' => 'Неверный метод']);
+        }
+
+        if (!finbuild_roadmap_can_edit($user)) {
+            finbuild_roadmap_send_json(['success' => false, 'error' => 'Нет прав на изменение дорожной карты']);
         }
 
         if ($action === 'add_group') {

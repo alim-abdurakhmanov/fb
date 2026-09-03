@@ -116,7 +116,8 @@ if (!function_exists('finbuild_chat_role_badge_html')) {
 if (!function_exists('finbuild_chat_sender_html')) {
     /**
      * Подпись отправителя в чате продукта.
-     * Субменеджер не видит ФИО агента/клиента; агент/клиент не видят ФИО субменеджера.
+     * Сотрудник без privacy.see_owner_identity не видит ФИО агента/клиента;
+     * партнёр/клиент не видят ФИО сотрудника, если у роли выключено privacy.staff_identity_visible_to_owner.
      *
      * @param array<string, mixed> $message
      * @param array<string, mixed>|null $viewer
@@ -136,8 +137,10 @@ if (!function_exists('finbuild_chat_sender_html')) {
         $viewerMasks = function_exists('finbuild_should_mask_owner_identity')
             ? finbuild_should_mask_owner_identity($viewer)
             : (function_exists('finbuild_is_case_manager') && finbuild_is_case_manager($viewer));
-        $senderIsSub = $senderRole === 'case_manager'
-            || ($senderRole === 'manager' && !empty($message['is_submanager']));
+        $isSub = !empty($message['is_submanager']);
+        $effectiveStaffRole = function_exists('finbuild_staff_privacy_role')
+            ? finbuild_staff_privacy_role($senderRole, $isSub)
+            : (($senderRole === 'manager' && $isSub) ? 'case_manager' : $senderRole);
         $name = trim(((string) ($message['first_name'] ?? '')) . ' ' . ((string) ($message['last_name'] ?? '')));
 
         if (!$isOwn && $viewerMasks && ($senderRole === 'partner' || $senderRole === 'client')) {
@@ -147,23 +150,33 @@ if (!function_exists('finbuild_chat_sender_html')) {
             return finbuild_chat_role_badge_html('Клиент', 'bg-secondary');
         }
 
-        if (!$isOwn && ($viewerRole === 'partner' || $viewerRole === 'client') && $senderIsSub) {
-            return finbuild_chat_role_badge_html('Менеджер', 'bg-primary text-white');
+        $isStaffSender = in_array($effectiveStaffRole, ['director', 'manager', 'case_manager', 'analyst'], true)
+            || (function_exists('finbuild_is_manager') && finbuild_is_manager($senderRole));
+        $externalViewer = in_array($viewerRole, ['partner', 'client', 'bank'], true);
+        $staffFioVisible = !function_exists('finbuild_staff_fio_visible_to_owner_and_bank')
+            || finbuild_staff_fio_visible_to_owner_and_bank($senderRole, $isSub);
+
+        if (!$isOwn && $externalViewer && $isStaffSender && !$staffFioVisible) {
+            $maskedLabel = 'Менеджер';
+            if ($effectiveStaffRole === 'director') {
+                $maskedLabel = 'Руководитель';
+            } elseif ($effectiveStaffRole === 'analyst') {
+                $maskedLabel = 'Аналитик';
+            }
+            return finbuild_chat_role_badge_html($maskedLabel, 'bg-primary text-white');
         }
 
         $html = htmlspecialchars($name);
         if (function_exists('finbuild_is_manager') ? finbuild_is_manager($senderRole) : in_array($senderRole, ['director', 'manager', 'case_manager'], true)) {
             $managerLabel = 'Менеджер';
-            if ($senderRole === 'director') {
+            if ($effectiveStaffRole === 'director' || $senderRole === 'director') {
                 $managerLabel = 'Руководитель';
-            } elseif ($senderRole === 'case_manager') {
+            } elseif ($effectiveStaffRole === 'case_manager') {
                 $managerLabel = 'Менеджер по заявкам';
             }
-            // Для клиента/партнёра case_manager уже замаскирован выше; для остальных — по роли
-            if ($senderRole === 'case_manager' && ($viewerRole === 'partner' || $viewerRole === 'client')) {
-                $managerLabel = 'Менеджер';
-            }
             $html .= finbuild_chat_role_badge_html($managerLabel, 'bg-primary text-white', true);
+        } elseif ($senderRole === 'analyst' || $effectiveStaffRole === 'analyst') {
+            $html .= finbuild_chat_role_badge_html('Аналитик', 'bg-primary text-white', true);
         }
 
         return $html;

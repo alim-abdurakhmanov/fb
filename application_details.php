@@ -105,6 +105,8 @@ $structureCanEdit = finbuild_can_edit_application_structure(
     $userIsAnalystFlag || finbuild_is_analyst_role($userRole),
     $currentUser
 );
+$showStructureTab = finbuild_can('structure.view', $currentUser)
+    || in_array($userRole, ['client', 'partner', 'bank'], true);
 $structureGrouped = finbuild_application_structure_fetch_grouped($pdo, (int) $applicationId, false);
 
 require_once 'header.php';
@@ -125,7 +127,8 @@ $structureAjaxUrl = finbuild_application_structure_page_ajax_url((int) $applicat
 // Без права applications.assign не может менять ответственного
 $isSubmanager = finbuild_should_mask_owner_identity($currentUser)
     || !finbuild_can('applications.assign', $currentUser);
-$showRoadmapTab = finbuild_can('roadmap.edit', $currentUser);
+$showRoadmapTab = finbuild_can('roadmap.view', $currentUser);
+$roadmapCanEdit = finbuild_can('roadmap.edit', $currentUser);
 
 // Список менеджеров для поля "Ответственный"
 $managersList = [];
@@ -1777,11 +1780,13 @@ body.app-chat-open .app-chat-fab { display: none; }
                     <i class="bi bi-folder me-2"></i><span class="tab-label">Документы</span>
                 </button>
             </li>
+            <?php if ($showStructureTab): ?>
             <li class="nav-item" role="presentation">
                 <button class="nav-link" id="structure-tab" data-bs-toggle="tab" data-bs-target="#structure" type="button" role="tab">
                     <i class="bi bi-diagram-3 me-2"></i><span class="tab-label">Структура</span>
                 </button>
             </li>
+            <?php endif; ?>
             <?php else: ?>
             <li class="nav-item" role="presentation">
                 <button class="nav-link active" id="info-tab" data-bs-toggle="tab" data-bs-target="#info" type="button" role="tab">
@@ -1814,11 +1819,13 @@ body.app-chat-open .app-chat-fab { display: none; }
         <span id="analytics-badge" class="badge bg-info ms-1" style="display: none;">Обновлено</span>
     </button>
 </li>
+            <?php if ($showStructureTab): ?>
             <li class="nav-item" role="presentation">
                 <button class="nav-link" id="structure-tab" data-bs-toggle="tab" data-bs-target="#structure" type="button" role="tab">
                     <i class="bi bi-diagram-3 me-2"></i><span class="tab-label">Структура</span>
                 </button>
             </li>
+            <?php endif; ?>
                 <?php if ($showRoadmapTab): ?>
             <li class="nav-item" role="presentation">
                 <button class="nav-link has-badge" id="roadmap-tab" data-bs-toggle="tab" data-bs-target="#roadmap" type="button" role="tab">
@@ -2897,7 +2904,7 @@ body.app-chat-open .app-chat-fab { display: none; }
 </div>
 <?php endif; ?>
 
-<?php if (finbuild_is_manager($userRole) || $isAnalystView): ?>
+<?php if ($showStructureTab && (finbuild_is_manager($userRole) || $isAnalystView)): ?>
 <!-- Вкладка «Структура» -->
 <div class="tab-pane fade" id="structure" role="tabpanel">
     <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-2 mb-4">
@@ -2921,7 +2928,7 @@ body.app-chat-open .app-chat-fab { display: none; }
     <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-2 mb-4">
         <div>
             <h4 class="mb-1">Дорожная карта</h4>
-            <p class="text-muted small mb-0">Чек-листы по заявке: отправка в банки, задачи команды. Видна только руководителям.</p>
+            <p class="text-muted small mb-0">Чек-листы по заявке: отправка в банки, задачи команды.</p>
         </div>
     </div>
     <?php

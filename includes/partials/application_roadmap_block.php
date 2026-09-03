@@ -1,14 +1,16 @@
 <?php
 /**
- * Блок «Дорожная карта» (вкладка заявки, только руководитель).
+ * Блок «Дорожная карта» (вкладка заявки).
  *
- * @var int $roadmapApplicationId
+ * @var int  $roadmapApplicationId
+ * @var bool $roadmapCanEdit
  */
 declare(strict_types=1);
 
 require_once dirname(__DIR__) . '/application_roadmap.php';
 
 $roadmapApplicationId = (int) ($roadmapApplicationId ?? 0);
+$roadmapCanEdit = !empty($roadmapCanEdit);
 $roadmapTablesReady = finbuild_roadmap_tables_ready(getPDO());
 $roadmapBlockId = 'app-roadmap-' . $roadmapApplicationId;
 ?>
@@ -111,7 +113,7 @@ $roadmapBlockId = 'app-roadmap-' . $roadmapApplicationId;
 }
 </style>
 
-<div id="<?= htmlspecialchars($roadmapBlockId) ?>" class="app-roadmap-root" data-application-id="<?= (int) $roadmapApplicationId ?>">
+<div id="<?= htmlspecialchars($roadmapBlockId) ?>" class="app-roadmap-root" data-application-id="<?= (int) $roadmapApplicationId ?>" data-can-edit="<?= $roadmapCanEdit ? '1' : '0' ?>">
     <?php if (!$roadmapTablesReady): ?>
         <div class="alert alert-warning mb-0">
             Таблицы дорожной карты не найдены. Выполните миграцию <code>migrations/add_application_roadmap.sql</code>.
@@ -119,12 +121,17 @@ $roadmapBlockId = 'app-roadmap-' . $roadmapApplicationId;
     <?php else: ?>
         <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
             <div class="text-muted small" id="<?= htmlspecialchars($roadmapBlockId) ?>-stats">Загрузка…</div>
+            <?php if ($roadmapCanEdit): ?>
             <div class="d-flex flex-wrap gap-2">
                 <button type="button" class="btn btn-primary btn-sm" id="<?= htmlspecialchars($roadmapBlockId) ?>-add-group-btn">
                     <i class="bi bi-plus-lg me-1"></i>Раздел
                 </button>
             </div>
+            <?php endif; ?>
         </div>
+        <?php if (!$roadmapCanEdit): ?>
+            <div class="alert alert-light border small mb-3">Режим просмотра: изменение дорожной карты недоступно.</div>
+        <?php endif; ?>
         <div id="<?= htmlspecialchars($roadmapBlockId) ?>-grid" class="app-roadmap-grid">
             <div class="app-roadmap-empty w-100">Загрузка дорожной карты…</div>
         </div>
@@ -138,6 +145,7 @@ $roadmapBlockId = 'app-roadmap-' . $roadmapApplicationId;
     if (!root) return;
 
     const applicationId = parseInt(root.getAttribute('data-application-id') || '0', 10);
+    let canEdit = root.getAttribute('data-can-edit') === '1';
     const gridEl = document.getElementById(<?= json_encode($roadmapBlockId . '-grid') ?>);
     const statsEl = document.getElementById(<?= json_encode($roadmapBlockId . '-stats') ?>);
     const tabBadge = document.getElementById('roadmap-tab-badge');
@@ -229,16 +237,20 @@ $roadmapBlockId = 'app-roadmap-' . $roadmapApplicationId;
         const metaHtml = metaLines.map(function (line) {
             return '<div class="app-roadmap-item__meta">' + esc(line) + '</div>';
         }).join('');
+        const checkDisabled = canEdit ? '' : ' disabled';
+        const actions = canEdit
+            ? ('<div class="app-roadmap-item__actions">' +
+                '<button type="button" class="btn btn-link btn-sm text-secondary p-0 roadmap-edit-item" title="Редактировать"><i class="bi bi-pencil"></i></button>' +
+                '<button type="button" class="btn btn-link btn-sm text-danger p-0 roadmap-del-item" title="Удалить"><i class="bi bi-trash"></i></button>' +
+                '</div>')
+            : '';
         return '<li class="app-roadmap-item' + (item.is_done ? ' is-done' : '') + '" data-item-id="' + item.id + '">' +
-            '<input type="checkbox" class="form-check-input app-roadmap-item__check"' + (item.is_done ? ' checked' : '') + ' aria-label="Отметить">' +
+            '<input type="checkbox" class="form-check-input app-roadmap-item__check"' + (item.is_done ? ' checked' : '') + checkDisabled + ' aria-label="Отметить">' +
             '<div class="app-roadmap-item__body">' +
             '<div class="app-roadmap-item__title">' + esc(item.title) + '</div>' +
             metaHtml +
             '</div>' +
-            '<div class="app-roadmap-item__actions">' +
-            '<button type="button" class="btn btn-link btn-sm text-secondary p-0 roadmap-edit-item" title="Редактировать"><i class="bi bi-pencil"></i></button>' +
-            '<button type="button" class="btn btn-link btn-sm text-danger p-0 roadmap-del-item" title="Удалить"><i class="bi bi-trash"></i></button>' +
-            '</div></li>';
+            actions + '</li>';
     }
 
     function buildGroupHtml(group) {
@@ -246,9 +258,16 @@ $roadmapBlockId = 'app-roadmap-' . $roadmapApplicationId;
         const isSystem = !!group.is_system;
         let itemsHtml = '';
         (group.items || []).forEach(function (it) { itemsHtml += buildItemHtml(it); });
-        const groupActions = isSystem ? '' :
+        const groupActions = (!canEdit || isSystem) ? '' :
             '<button type="button" class="btn btn-link btn-sm text-secondary p-0 roadmap-rename-group" title="Переименовать"><i class="bi bi-pencil"></i></button>' +
             '<button type="button" class="btn btn-link btn-sm text-danger p-0 roadmap-del-group" title="Удалить раздел"><i class="bi bi-trash"></i></button>';
+        const addItem = canEdit
+            ? ('<div class="app-roadmap-add-item">' +
+                '<div class="input-group input-group-sm">' +
+                '<input type="text" class="form-control roadmap-new-item-input" placeholder="Новый пункт…" maxlength="500">' +
+                '<button type="button" class="btn btn-outline-primary roadmap-add-item-btn"><i class="bi bi-plus"></i></button>' +
+                '</div></div>')
+            : '';
         return '<div class="app-roadmap-card' + (isSystem ? ' is-system-group' : '') + '" data-group-id="' + group.id + '"' +
             (isSystem ? ' data-is-system="1"' : '') + '>' +
             '<div class="app-roadmap-card__head">' +
@@ -259,11 +278,7 @@ $roadmapBlockId = 'app-roadmap-' . $roadmapApplicationId;
             groupActions +
             '</div>' +
             '<ul class="app-roadmap-list">' + (itemsHtml || '<li class="text-muted small px-1 py-2">Нет пунктов</li>') + '</ul>' +
-            '<div class="app-roadmap-add-item">' +
-            '<div class="input-group input-group-sm">' +
-            '<input type="text" class="form-control roadmap-new-item-input" placeholder="Новый пункт…" maxlength="500">' +
-            '<button type="button" class="btn btn-outline-primary roadmap-add-item-btn"><i class="bi bi-plus"></i></button>' +
-            '</div></div></div>';
+            addItem + '</div>';
     }
 
     function render(data) {
@@ -292,12 +307,21 @@ $roadmapBlockId = 'app-roadmap-' . $roadmapApplicationId;
 
     async function loadRoadmap() {
         const data = await apiGet({ action: 'get', application_id: String(applicationId) });
+        if (typeof data.can_edit !== 'undefined') {
+            canEdit = !!data.can_edit;
+            root.setAttribute('data-can-edit', canEdit ? '1' : '0');
+        }
         render(data);
     }
 
     gridEl.addEventListener('change', async function (e) {
         const cb = e.target.closest('.app-roadmap-item__check');
         if (!cb) return;
+        if (!canEdit) {
+            e.preventDefault();
+            cb.checked = !cb.checked;
+            return;
+        }
         const li = cb.closest('.app-roadmap-item');
         if (!li) return;
         const itemId = li.getAttribute('data-item-id');

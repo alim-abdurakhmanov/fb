@@ -481,7 +481,11 @@ function finbuild_application_structure_can_read(
     int $userId,
     bool $isAnalystFlag = false
 ): bool {
-    if (finbuild_is_manager($role) || finbuild_is_analyst_role($role) || $isAnalystFlag) {
+    $user = ['role' => $role, 'is_analyst' => $isAnalystFlag ? 1 : 0, 'id' => $userId];
+    $hasStructureAccess = finbuild_can('structure.view', $user);
+
+    // Сотрудники и аналитики — только по матрице + доступ к заявке
+    if ($hasStructureAccess) {
         $stmt = $pdo->prepare('SELECT id, status, created_by FROM applications WHERE id = ? LIMIT 1');
         $stmt->execute([$applicationId]);
         $app = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -491,8 +495,14 @@ function finbuild_application_structure_can_read(
         if (finbuild_analyst_cannot_view_failed_application($app, $role, $isAnalystFlag, $userId)) {
             return false;
         }
-        return true;
+        return finbuild_can_access_application($pdo, $applicationId, $role, $userId, $isAnalystFlag);
     }
+
+    // Без права structure.view staff/analyst не читают структуру
+    if (finbuild_is_manager($role) || finbuild_is_analyst_role($role) || $isAnalystFlag) {
+        return false;
+    }
+
     $stmt = $pdo->prepare('SELECT id, created_by FROM applications WHERE id = ? LIMIT 1');
     $stmt->execute([$applicationId]);
     $app = $stmt->fetch(PDO::FETCH_ASSOC);

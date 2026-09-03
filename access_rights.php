@@ -54,7 +54,7 @@ foreach ($defs as $key => $def) {
     -webkit-overflow-scrolling: touch;
 }
 .access-matrix {
-    min-width: 920px;
+    min-width: 960px;
     font-size: 0.875rem;
     margin-bottom: 0;
 }
@@ -67,7 +67,7 @@ foreach ($defs as $key => $def) {
 .access-matrix th.perm-col,
 .access-matrix td.perm-col {
     text-align: left;
-    min-width: 220px;
+    min-width: 240px;
     position: sticky;
     left: 0;
     background: #fff;
@@ -99,16 +99,9 @@ foreach ($defs as $key => $def) {
     opacity: 0.55;
     cursor: not-allowed;
 }
-.role-desc-card {
-    border: 1px solid #e9ecef;
-    border-radius: 10px;
-    padding: 1rem 1.1rem;
-    height: 100%;
-    background: #fafbfc;
-}
-.role-desc-card .form-control,
-.role-desc-card .form-label {
-    font-size: 0.875rem;
+.access-na {
+    color: #adb5bd;
+    font-size: 0.85rem;
 }
 .perm-hint {
     display: block;
@@ -134,7 +127,7 @@ foreach ($defs as $key => $def) {
     <div class="row align-items-center">
         <div class="col">
             <h1 class="h3 mb-0">Права доступа</h1>
-            <p class="text-muted mb-0">Матрица прав по ролям и описания ролей</p>
+            <p class="text-muted mb-0">Матрица прав по ролям</p>
         </div>
         <div class="col-auto access-toolbar">
             <span class="access-status" id="accessSaveStatus">
@@ -156,30 +149,13 @@ foreach ($defs as $key => $def) {
 </div>
 
 <div class="access-card">
-    <h2 class="h5 mb-3">Роли</h2>
-    <p class="text-muted small mb-3">Краткое описание отображается в интерфейсе и помогает команде понимать назначение роли.</p>
-    <div class="row g-3" id="roleDescriptions">
-        <?php foreach ($roleKeys as $roleKey):
-            $meta = $config['roles'][$roleKey] ?? ['label' => $roleKey, 'description' => ''];
-            ?>
-            <div class="col-md-6 col-xl-4">
-                <div class="role-desc-card" data-role="<?= htmlspecialchars($roleKey) ?>">
-                    <label class="form-label fw-semibold">Название</label>
-                    <input type="text" class="form-control mb-2 role-label-input"
-                           maxlength="80"
-                           value="<?= htmlspecialchars((string) $meta['label']) ?>">
-                    <label class="form-label fw-semibold">Описание</label>
-                    <textarea class="form-control role-desc-input" rows="3" maxlength="500"><?= htmlspecialchars((string) $meta['description']) ?></textarea>
-                    <div class="form-text mt-1"><code><?= htmlspecialchars($roleKey) ?></code></div>
-                </div>
-            </div>
-        <?php endforeach; ?>
-    </div>
-</div>
-
-<div class="access-card">
     <h2 class="h5 mb-2">Матрица прав</h2>
-    <p class="text-muted small mb-3">Отметьте, каким ролям доступен раздел или функция. Серые галочки у руководителя нельзя снять — это защита от блокировки администрирования.</p>
+    <p class="text-muted small mb-3">
+        Отметьте, каким ролям доступен раздел или функция.
+        «—» означает, что право к роли не применяется.
+        Серые галочки у руководителя нельзя снять.
+        Редактирование автоматически включает просмотр.
+    </p>
     <div class="access-matrix-wrap">
         <table class="table table-bordered access-matrix" id="accessMatrix">
             <thead>
@@ -197,7 +173,9 @@ foreach ($defs as $key => $def) {
                     <tr class="group-row">
                         <td colspan="<?= 1 + count($roleKeys) ?>"><?= htmlspecialchars($groupName) ?></td>
                     </tr>
-                    <?php foreach ($perms as $permKey => $def): ?>
+                    <?php foreach ($perms as $permKey => $def):
+                        $applicable = $def['applicable_roles'] ?? null;
+                        ?>
                         <tr data-permission="<?= htmlspecialchars($permKey) ?>">
                             <td class="perm-col">
                                 <strong><?= htmlspecialchars($def['label']) ?></strong>
@@ -206,17 +184,22 @@ foreach ($defs as $key => $def) {
                                 <?php endif; ?>
                             </td>
                             <?php foreach ($roleKeys as $roleKey):
+                                $applies = $applicable === null || in_array($roleKey, $applicable, true);
                                 $checked = !empty($config['matrix'][$permKey][$roleKey]);
                                 $locked = !empty($def['lock_director']) && $roleKey === 'director';
                                 ?>
                                 <td>
-                                    <input type="checkbox"
-                                           class="form-check-input matrix-check"
-                                           data-perm="<?= htmlspecialchars($permKey) ?>"
-                                           data-role="<?= htmlspecialchars($roleKey) ?>"
-                                           <?= $checked ? 'checked' : '' ?>
-                                           <?= $locked ? 'disabled' : '' ?>
-                                           title="<?= $locked ? 'Нельзя отключить у руководителя' : '' ?>">
+                                    <?php if (!$applies): ?>
+                                        <span class="access-na" title="Не применяется к этой роли">—</span>
+                                    <?php else: ?>
+                                        <input type="checkbox"
+                                               class="form-check-input matrix-check"
+                                               data-perm="<?= htmlspecialchars($permKey) ?>"
+                                               data-role="<?= htmlspecialchars($roleKey) ?>"
+                                               <?= $checked ? 'checked' : '' ?>
+                                               <?= $locked ? 'disabled' : '' ?>
+                                               title="<?= $locked ? 'Нельзя отключить у руководителя' : '' ?>">
+                                    <?php endif; ?>
                                 </td>
                             <?php endforeach; ?>
                         </tr>
@@ -232,16 +215,11 @@ foreach ($defs as $key => $def) {
     const saveBtn = document.getElementById('accessSaveBtn');
     const resetBtn = document.getElementById('accessResetBtn');
     const statusEl = document.getElementById('accessSaveStatus');
+    const roleLabels = <?= json_encode(array_map(static function ($m) {
+        return ['label' => (string) ($m['label'] ?? ''), 'description' => ''];
+    }, $config['roles']), JSON_UNESCAPED_UNICODE) ?>;
 
     function collectPayload() {
-        const roles = {};
-        document.querySelectorAll('#roleDescriptions .role-desc-card').forEach(function (card) {
-            const key = card.getAttribute('data-role');
-            roles[key] = {
-                label: (card.querySelector('.role-label-input') || {}).value || '',
-                description: (card.querySelector('.role-desc-input') || {}).value || ''
-            };
-        });
         const matrix = {};
         document.querySelectorAll('.matrix-check').forEach(function (cb) {
             const perm = cb.getAttribute('data-perm');
@@ -252,7 +230,17 @@ foreach ($defs as $key => $def) {
                 matrix[perm][role] = true;
             }
         });
-        return { roles: roles, matrix: matrix };
+        // Редактирование → просмотр
+        ['structure', 'roadmap'].forEach(function (base) {
+            const viewKey = base + '.view';
+            const editKey = base + '.edit';
+            if (!matrix[viewKey]) matrix[viewKey] = {};
+            if (!matrix[editKey]) return;
+            Object.keys(matrix[editKey]).forEach(function (role) {
+                if (matrix[editKey][role]) matrix[viewKey][role] = true;
+            });
+        });
+        return { roles: roleLabels, matrix: matrix };
     }
 
     function setStatus(text, isError) {
@@ -261,8 +249,8 @@ foreach ($defs as $key => $def) {
         statusEl.style.color = isError ? '#dc3545' : '#6c757d';
     }
 
-    async function postAction(action, extra) {
-        const body = Object.assign({ action: action }, extra || {});
+    async function postAction(action) {
+        const body = { action: action };
         if (action === 'save') {
             Object.assign(body, collectPayload());
         }
@@ -274,6 +262,27 @@ foreach ($defs as $key => $def) {
         });
         return res.json();
     }
+
+    // Синхронизация: снятие view снимает edit; включение edit включает view
+    document.querySelectorAll('.matrix-check').forEach(function (cb) {
+        cb.addEventListener('change', function () {
+            const perm = cb.getAttribute('data-perm') || '';
+            const role = cb.getAttribute('data-role') || '';
+            const m = perm.match(/^(structure|roadmap)\.(view|edit)$/);
+            if (!m) return;
+            const base = m[1];
+            const kind = m[2];
+            const viewCb = document.querySelector('.matrix-check[data-perm="' + base + '.view"][data-role="' + role + '"]');
+            const editCb = document.querySelector('.matrix-check[data-perm="' + base + '.edit"][data-role="' + role + '"]');
+            if (!viewCb || !editCb) return;
+            if (kind === 'edit' && cb.checked) {
+                viewCb.checked = true;
+            }
+            if (kind === 'view' && !cb.checked) {
+                editCb.checked = false;
+            }
+        });
+    });
 
     if (saveBtn) {
         saveBtn.addEventListener('click', async function () {
@@ -296,7 +305,7 @@ foreach ($defs as $key => $def) {
 
     if (resetBtn) {
         resetBtn.addEventListener('click', async function () {
-            if (!confirm('Сбросить матрицу и описания ролей к значениям по умолчанию?')) {
+            if (!confirm('Сбросить матрицу прав к значениям по умолчанию?')) {
                 return;
             }
             resetBtn.disabled = true;

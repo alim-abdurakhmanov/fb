@@ -807,7 +807,9 @@ $mgrBankCommentHtml = trim((string) ($caseRow['manager_comment'] ?? ''));
                 : '<span class="badge bg-primary text-white ms-1">Менеджер</span>';
             const files = m.files && m.files.length ? m.files : [];
             html += '<div class="bank-msg' + (own ? ' own' : '') + '">';
-            html += '<div class="bank-msg-hdr"><span class="bank-msg-sender">' + esc(who || 'Пользователь') + roleBadge + '</span>';
+            html += '<div class="bank-msg-hdr"><span class="bank-msg-sender">'
+                + (m.identity_masked ? '' : esc(who || 'Пользователь'))
+                + roleBadge + '</span>';
             html += '<span class="bank-msg-time">' + esc(m.created_at || '') + '</span></div>';
             if ((m.message || '').trim() !== '') {
                 html += '<div class="bank-msg-body">' + esc(m.message || '').replace(/\n/g, '<br>') + '</div>';

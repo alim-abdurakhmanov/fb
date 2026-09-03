@@ -16,7 +16,9 @@ function finbuild_access_role_keys(): array
 /**
  * Права (строки матрицы). Значение true = роль имеет право / возможность.
  *
- * @return array<string, array{label: string, group: string, hint?: string, lock_director?: bool}>
+ * applicable_roles — если задано, для остальных ролей в UI «—» (не применяется).
+ *
+ * @return array<string, array{label: string, group: string, hint?: string, lock_director?: bool, applicable_roles?: list<string>}>
  */
 function finbuild_access_permission_defs(): array
 {
@@ -32,15 +34,25 @@ function finbuild_access_permission_defs(): array
             'group' => 'Заявки',
             'hint' => 'Смена поля «Ответственный» в карточке заявки.',
         ],
-        'structure.edit' => [
-            'label' => 'Структура',
+        'structure.view' => [
+            'label' => 'Структура — просмотр',
             'group' => 'Заявки',
-            'hint' => 'Редактирование структуры / чек-листа документов заявки.',
+            'hint' => 'Вкладка «Структура» только для чтения.',
+        ],
+        'structure.edit' => [
+            'label' => 'Структура — редактирование',
+            'group' => 'Заявки',
+            'hint' => 'Добавление, изменение и удаление пунктов структуры.',
+        ],
+        'roadmap.view' => [
+            'label' => 'Дорожная карта — просмотр',
+            'group' => 'Заявки',
+            'hint' => 'Вкладка «Дорожная карта» только для чтения.',
         ],
         'roadmap.edit' => [
-            'label' => 'Дорожная карта',
+            'label' => 'Дорожная карта — редактирование',
             'group' => 'Заявки',
-            'hint' => 'Вкладка «Дорожная карта» и изменение пунктов.',
+            'hint' => 'Изменение разделов и пунктов дорожной карты.',
         ],
         'admin.users' => [
             'label' => 'Пользователи',
@@ -66,7 +78,14 @@ function finbuild_access_permission_defs(): array
         'privacy.see_owner_identity' => [
             'label' => 'Контакты владельца и ФИО в чате',
             'group' => 'Конфиденциальность',
-            'hint' => 'Видит контакты владельца заявки и реальные ФИО агента/клиента в чате. Без права — маскировка («Агент» / «Клиент» / «Менеджер»).',
+            'hint' => 'Только для сотрудников: видит контакты владельца заявки и ФИО агента/клиента в чате. Без права — маскировка («Агент» / «Клиент»).',
+            'applicable_roles' => ['director', 'manager', 'case_manager', 'analyst'],
+        ],
+        'privacy.staff_identity_visible_to_owner' => [
+            'label' => 'Владелец и банк видят ФИО в чате',
+            'group' => 'Конфиденциальность',
+            'hint' => 'Если включено — партнёр, клиент и банк видят ФИО этой роли в чатах. Если выключено — только бейдж («Менеджер», «Руководитель», «Аналитик») без ФИО.',
+            'applicable_roles' => ['director', 'manager', 'case_manager', 'analyst'],
         ],
     ];
 }
@@ -75,34 +94,13 @@ function finbuild_access_permission_defs(): array
 function finbuild_access_default_role_meta(): array
 {
     return [
-        'director' => [
-            'label' => 'Руководитель',
-            'description' => 'Полный доступ к платформе, включая статистику и настройку прав. Обычно 1–2 человека.',
-        ],
-        'manager' => [
-            'label' => 'Менеджер',
-            'description' => 'Работа со всеми заявками, структурой, дорожной картой и админкой пользователей/продуктов. Без статистики и прав доступа.',
-        ],
-        'case_manager' => [
-            'label' => 'Менеджер по заявкам',
-            'description' => 'Ведёт только назначенные ему заявки. Без админки; контакты владельца и ФИО в чате скрыты.',
-        ],
-        'analyst' => [
-            'label' => 'Аналитик',
-            'description' => 'Урезанный ЛК: список заявок, структура и документы для анализа. Без чата и админки.',
-        ],
-        'partner' => [
-            'label' => 'Партнёр (агент)',
-            'description' => 'Свои заявки, продукты и чат. Флаг «аналитик» у партнёра даёт доп. доступ к анализу чужих заявок.',
-        ],
-        'client' => [
-            'label' => 'Клиент',
-            'description' => 'Только собственные заявки, документы и переписка по ним.',
-        ],
-        'bank' => [
-            'label' => 'Банк',
-            'description' => 'Отдельный ЛК банка: кейсы, переданные в этот банк. Не видит общий кабинет FinBuild.',
-        ],
+        'director' => ['label' => 'Руководитель', 'description' => ''],
+        'manager' => ['label' => 'Менеджер', 'description' => ''],
+        'case_manager' => ['label' => 'Менеджер по заявкам', 'description' => ''],
+        'analyst' => ['label' => 'Аналитик', 'description' => ''],
+        'partner' => ['label' => 'Партнёр', 'description' => ''],
+        'client' => ['label' => 'Клиент', 'description' => ''],
+        'bank' => ['label' => 'Банк', 'description' => ''],
     ];
 }
 
@@ -123,30 +121,31 @@ function finbuild_access_default_matrix(): array
         $matrix[$key] = $empty();
     }
 
-    // director / manager — полный операционный доступ
     foreach (['director', 'manager'] as $r) {
         $matrix['applications.view_all'][$r] = true;
         $matrix['applications.assign'][$r] = true;
+        $matrix['structure.view'][$r] = true;
         $matrix['structure.edit'][$r] = true;
+        $matrix['roadmap.view'][$r] = true;
         $matrix['roadmap.edit'][$r] = true;
         $matrix['admin.users'][$r] = true;
         $matrix['admin.products'][$r] = true;
         $matrix['privacy.see_owner_identity'][$r] = true;
+        $matrix['privacy.staff_identity_visible_to_owner'][$r] = true;
     }
     $matrix['stats.monthly']['director'] = true;
     $matrix['access_rights.manage']['director'] = true;
 
-    // analyst — структура (и косвенно «все заявки» для анализа)
+    // Менеджер по заявкам: структура на просмотр, без дорожной карты и без идентичности владельца;
+    // ФИО в чате для владельца/банка по умолчанию скрыто
+    $matrix['structure.view']['case_manager'] = true;
+
     $matrix['applications.view_all']['analyst'] = true;
+    $matrix['structure.view']['analyst'] = true;
     $matrix['structure.edit']['analyst'] = true;
     $matrix['privacy.see_owner_identity']['analyst'] = true;
+    $matrix['privacy.staff_identity_visible_to_owner']['analyst'] = true;
 
-    // partner / client / bank — видят идентичность в своём контексте
-    $matrix['privacy.see_owner_identity']['partner'] = true;
-    $matrix['privacy.see_owner_identity']['client'] = true;
-    $matrix['privacy.see_owner_identity']['bank'] = true;
-
-    // case_manager — без view_all, без админки, без see_owner
     return $matrix;
 }
 
@@ -154,7 +153,7 @@ function finbuild_access_default_matrix(): array
 function finbuild_access_defaults(): array
 {
     return [
-        'version' => 1,
+        'version' => 3,
         'roles' => finbuild_access_default_role_meta(),
         'matrix' => finbuild_access_default_matrix(),
     ];
@@ -242,23 +241,59 @@ function finbuild_access_merge_config(array $defaults, array $stored): array
                 }
             }
         }
+        // Миграция со старой матрицы: был только *.edit → включаем и *.view
+        foreach (finbuild_access_role_keys() as $role) {
+            if (!empty($out['matrix']['structure.edit'][$role])) {
+                $out['matrix']['structure.view'][$role] = true;
+            }
+            if (!empty($out['matrix']['roadmap.edit'][$role])) {
+                $out['matrix']['roadmap.view'][$role] = true;
+            }
+        }
     }
+
+    // Конфиденциальность по сотрудникам: у partner/client/bank в матрице всегда выкл.
+    foreach (['partner', 'client', 'bank'] as $r) {
+        $out['matrix']['privacy.see_owner_identity'][$r] = false;
+        $out['matrix']['privacy.staff_identity_visible_to_owner'][$r] = false;
+    }
+
     // Руководитель всегда может управлять правами и видеть все заявки
     $out['matrix']['access_rights.manage']['director'] = true;
     $out['matrix']['applications.view_all']['director'] = true;
+    $out['version'] = max(3, (int) ($out['version'] ?? 3));
     return $out;
 }
 
 /**
  * Проверка права для пользователя.
  * Партнёр с is_analyst=1 наследует отдельные права аналитика.
+ * Редактирование подразумевает просмотр (structure/roadmap).
  */
 function finbuild_can(string $permission, ?array $user = null): bool
 {
+    if ($permission === 'structure.view' && finbuild_can('structure.edit', $user)) {
+        return true;
+    }
+    if ($permission === 'roadmap.view' && finbuild_can('roadmap.edit', $user)) {
+        return true;
+    }
+
     $cfg = finbuild_access_config();
     $role = function_exists('finbuild_user_role')
         ? finbuild_user_role($user)
         : (string) (($user['role'] ?? $_SESSION['role'] ?? 'client'));
+
+    $defs = finbuild_access_permission_defs();
+    if (!empty($defs[$permission]['applicable_roles']) && is_array($defs[$permission]['applicable_roles'])) {
+        if (!in_array($role, $defs[$permission]['applicable_roles'], true)) {
+            // Для N/A ролей право «не применяется» — маскировку сотрудников не включаем
+            if ($permission === 'privacy.see_owner_identity') {
+                return true;
+            }
+            return false;
+        }
+    }
 
     $matrix = $cfg['matrix'][$permission] ?? null;
     if (!is_array($matrix)) {
@@ -275,7 +310,7 @@ function finbuild_can(string $permission, ?array $user = null): bool
         && finbuild_user_is_analyst_flag($user ?? [
             'is_analyst' => (int) ($_SESSION['is_analyst'] ?? 0),
         ])
-        && in_array($permission, ['applications.view_all', 'structure.edit', 'privacy.see_owner_identity'], true)
+        && in_array($permission, ['applications.view_all', 'structure.view', 'structure.edit', 'privacy.see_owner_identity'], true)
         && !empty($matrix['analyst'])
     ) {
         return true;
@@ -288,6 +323,57 @@ function finbuild_can(string $permission, ?array $user = null): bool
 function finbuild_should_mask_owner_identity(?array $user = null): bool
 {
     return !finbuild_can('privacy.see_owner_identity', $user);
+}
+
+/**
+ * Нормализация роли отправителя для строки «Владелец и банк видят ФИО».
+ */
+function finbuild_staff_privacy_role(string $role, bool $isSubmanager = false): string
+{
+    if ($role === 'manager' && $isSubmanager) {
+        return 'case_manager';
+    }
+    return $role;
+}
+
+/**
+ * Видят ли партнёр/клиент/банк ФИО сотрудника данной роли в чате.
+ */
+function finbuild_staff_fio_visible_to_owner_and_bank(string $staffRole, bool $isSubmanager = false): bool
+{
+    $role = finbuild_staff_privacy_role($staffRole, $isSubmanager);
+    $applicable = ['director', 'manager', 'case_manager', 'analyst'];
+    if (!in_array($role, $applicable, true)) {
+        return true;
+    }
+    $cfg = finbuild_access_config();
+    return !empty($cfg['matrix']['privacy.staff_identity_visible_to_owner'][$role]);
+}
+
+/**
+ * Маскирует ФИО сотрудников в сообщениях чата для владельца/банка.
+ *
+ * @param list<array<string, mixed>> $messages
+ * @return list<array<string, mixed>>
+ */
+function finbuild_mask_staff_identity_in_chat_messages(array $messages): array
+{
+    foreach ($messages as &$m) {
+        $role = (string) ($m['role'] ?? '');
+        $isSub = !empty($m['is_submanager']);
+        $effective = finbuild_staff_privacy_role($role, $isSub);
+        if (!in_array($effective, ['director', 'manager', 'case_manager', 'analyst'], true)) {
+            continue;
+        }
+        if (finbuild_staff_fio_visible_to_owner_and_bank($role, $isSub)) {
+            continue;
+        }
+        $m['first_name'] = '';
+        $m['last_name'] = '';
+        $m['identity_masked'] = true;
+    }
+    unset($m);
+    return $messages;
 }
 
 /**

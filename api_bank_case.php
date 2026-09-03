@@ -138,12 +138,13 @@ try {
         $applicationProduct = $ap->fetch(PDO::FETCH_ASSOC);
         $pkg = finbank_build_package_payload($pdo, $caseId, $applicationId, $applicationProductId, false);
         $msg = $pdo->prepare(
-            'SELECT m.*, u.first_name, u.last_name, u.role, u.company_name AS user_company_name
+            'SELECT m.*, u.first_name, u.last_name, u.role, u.is_submanager, u.company_name AS user_company_name
              FROM application_product_bank_case_messages m
              JOIN users u ON u.id = m.user_id WHERE m.bank_case_id = ? ORDER BY m.created_at ASC'
         );
         $msg->execute([$caseId]);
         $messages = finbank_bank_case_messages_append_files($pdo, $msg->fetchAll(PDO::FETCH_ASSOC));
+        $messages = finbuild_mask_staff_identity_in_chat_messages($messages);
         $log = $pdo->prepare(
             'SELECT l.*, u.first_name, u.last_name, u.role, u.company_name AS changer_company_name
              FROM application_product_bank_case_status_log l
