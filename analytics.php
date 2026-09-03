@@ -1,13 +1,61 @@
 <?php
 $current_page = 'analytics';
-require_once 'header.php';
+require_once __DIR__ . '/header.php';
+require_once __DIR__ . '/includes/finscore.php';
+require_once __DIR__ . '/includes/finscore_view.php';
 
-$prefillInn = preg_replace('/\D+/', '', (string) ($_GET['inn'] ?? ''));
+$pdo = getPDO();
+$error = '';
+$finscoreResult = null;
+$rawData = null;
+$prefillInn = preg_replace('/\D+/', '', (string) ($_GET['inn'] ?? $_POST['inn'] ?? ''));
 if (strlen($prefillInn) !== 10 && strlen($prefillInn) !== 12) {
     $prefillInn = '';
 }
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $inn = preg_replace('/\D+/', '', (string) ($_POST['inn'] ?? ''));
+    if ($inn === '' || (strlen($inn) !== 10 && strlen($inn) !== 12)) {
+        $error = 'Укажите корректный ИНН (10 или 12 цифр)';
+    } else {
+        $prefillInn = $inn;
+        try {
+            $built = finscore_build_for_inn($inn, ['product_type' => 'bg']);
+            if (empty($built['ok'])) {
+                $error = $built['error'] ?? 'Не удалось получить данные';
+            } else {
+                $finscoreResult = $built['result'] ?? null;
+                $rawData = $built['raw'] ?? null;
+                try {
+                    $stmt = $pdo->prepare(
+                        'INSERT INTO analytics_requests (user_id, inn, response_data, created_at) VALUES (?, ?, ?, NOW())'
+                    );
+                    $stmt->execute([
+                        (int) $_SESSION['user_id'],
+                        $inn,
+                        json_encode([
+                            'company' => $rawData['company'] ?? null,
+                            'finance' => $rawData['finance'] ?? null,
+                            'enforcements' => $rawData['enforcements'] ?? null,
+                            'lawsuits' => $rawData['lawsuits'] ?? null,
+                            'finscore' => $finscoreResult,
+                        ], JSON_UNESCAPED_UNICODE),
+                    ]);
+                } catch (Throwable $logError) {
+                    error_log('analytics.php log: ' . $logError->getMessage());
+                }
+            }
+        } catch (Throwable $e) {
+            $error = 'Ошибка при получении данных: ' . $e->getMessage();
+        }
+    }
+}
+
+$cssV = @filemtime(__DIR__ . '/assets/css/company_analytics.css') ?: time();
+$jsV = @filemtime(__DIR__ . '/assets/js/company_analytics.js') ?: time();
+$hasResult = is_array($finscoreResult) || is_array($rawData);
 ?>
-<link rel="stylesheet" href="assets/css/company_analytics.css">
+<link rel="stylesheet" href="assets/css/company_analytics.css?v=<?= (int) $cssV ?>">
 
 <div class="page-header">
     <div class="row align-items-center">
@@ -30,7 +78,7 @@ if (strlen($prefillInn) !== 10 && strlen($prefillInn) !== 12) {
                 <h5 class="card-title mb-0">Поиск компании</h5>
             </div>
             <div class="card-body">
-                <form id="standalone-analytics-form" autocomplete="off">
+                <form id="standalone-analytics-form" method="POST" action="analytics.php" autocomplete="off">
                     <div class="mb-3">
                         <label class="form-label fw-bold" for="standalone-inn">ИНН компании</label>
                         <input type="text" class="form-control" id="standalone-inn" name="inn"
@@ -45,6 +93,11 @@ if (strlen($prefillInn) !== 10 && strlen($prefillInn) !== 12) {
                         <i class="bi bi-search me-2"></i>Получить аналитику
                     </button>
                 </form>
+                <?php if ($error !== ''): ?>
+                    <div class="alert alert-danger mt-3 mb-0">
+                        <i class="bi bi-exclamation-triangle me-2"></i><?= htmlspecialchars($error) ?>
+                    </div>
+                <?php endif; ?>
             </div>
         </div>
 
@@ -82,14 +135,16 @@ if (strlen($prefillInn) !== 10 && strlen($prefillInn) !== 12) {
                             <div class="col-md-6">
                                 <h5 class="mb-0">
                                     <i class="bi bi-building me-2 text-primary"></i>
-                                    <span id="company-name">Компания не выбрана</span>
+                                    <span id="company-name">
+                                        <?= htmlspecialchars((string) ($finscoreResult['company_name'] ?? 'Компания не выбрана')) ?>
+                                    </span>
                                 </h5>
                                 <div class="text-muted">ИНН: <span id="company-inn"><?= $prefillInn !== '' ? htmlspecialchars($prefillInn) : '—' ?></span></div>
                             </div>
                             <div class="col-md-6 text-md-end">
                                 <small class="text-muted" id="last-update">
                                     <i class="bi bi-clock me-1"></i>
-                                    <span>Данные не загружены</span>
+                                    <span><?= $hasResult ? 'Обновлено только что' : 'Данные не загружены' ?></span>
                                 </small>
                             </div>
                         </div>
@@ -109,9 +164,13 @@ if (strlen($prefillInn) !== 10 && strlen($prefillInn) !== 12) {
                 <span id="error-message"></span>
             </div>
 
-            <div id="analytics-content" style="display: none;"></div>
+            <div id="analytics-content" style="<?= $hasResult ? '' : 'display: none;' ?>">
+                <?php if ($hasResult): ?>
+                    <?= finscore_render_analytics_html($rawData, $finscoreResult) ?>
+                <?php endif; ?>
+            </div>
 
-            <div id="analytics-empty" class="text-center py-5">
+            <div id="analytics-empty" class="text-center py-5" style="<?= $hasResult ? 'display: none;' : '' ?>">
                 <i class="bi bi-graph-up fs-1 text-muted d-block mb-3"></i>
                 <h5 class="text-muted">Введите ИНН слева</h5>
                 <p class="text-muted mb-0">Результат будет таким же, как во вкладке «Аналитика» в заявке</p>
@@ -120,20 +179,29 @@ if (strlen($prefillInn) !== 10 && strlen($prefillInn) !== 12) {
     </div>
 </div>
 
+<script>
+window.showNotification = window.showNotification || function (message, type) {
+    console.log('[analytics]', type || 'info', message);
+};
+</script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-<script src="assets/js/company_analytics.js"></script>
+<script src="assets/js/company_analytics.js?v=<?= (int) $jsV ?>"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function () {
-    if (typeof initCompanyAnalytics === 'function') {
-        initCompanyAnalytics({
-            mode: 'inn',
-            formId: 'standalone-analytics-form',
-            innInputId: 'standalone-inn',
-            submitButtonId: 'standalone-analytics-submit',
-            autoLoadInn: <?= json_encode($prefillInn) ?>
-        });
+    if (typeof initCompanyAnalytics !== 'function') {
+        return;
     }
+
+    var initialFinscore = <?= json_encode($finscoreResult, JSON_UNESCAPED_UNICODE) ?>;
+    initCompanyAnalytics({
+        mode: 'inn',
+        formId: 'standalone-analytics-form',
+        innInputId: 'standalone-inn',
+        submitButtonId: 'standalone-analytics-submit',
+        preferAjax: true,
+        initialFinscore: initialFinscore
+    });
 });
 </script>
 
-<?php require_once 'footer.php'; ?>
+<?php require_once __DIR__ . '/footer.php'; ?>

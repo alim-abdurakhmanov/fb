@@ -113,7 +113,7 @@ $structureGrouped = finbuild_application_structure_fetch_grouped($pdo, (int) $ap
 
 require_once 'header.php';
 ?>
-<link rel="stylesheet" href="assets/css/company_analytics.css">
+<link rel="stylesheet" href="assets/css/company_analytics.css?v=<?= (int) (@filemtime(__DIR__ . '/assets/css/company_analytics.css') ?: time()) ?>">
 <?php
 require_once __DIR__ . '/includes/public/landing_data.php';
 
@@ -3432,7 +3432,7 @@ body.app-chat-open .app-chat-fab { display: none; }
 <?php endif; ?>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-<script src="assets/js/company_analytics.js"></script>
+<script src="assets/js/company_analytics.js?v=<?= (int) (@filemtime(__DIR__ . '/assets/js/company_analytics.js') ?: time()) ?>"></script>
 <script>
 // Глобальная функция для уведомлений
 function showNotification(message, type = 'success') {

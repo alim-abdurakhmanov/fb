@@ -794,6 +794,10 @@
             }
             if (form) {
                 form.addEventListener('submit', function (e) {
+                    // AJAX предпочтителен; без JS форма уйдёт обычным POST.
+                    if (options.preferAjax === false) {
+                        return;
+                    }
                     e.preventDefault();
                     const inn = innInput ? innInput.value : '';
                     loadAnalyticsByInn(inn);
@@ -801,6 +805,9 @@
             }
             if (options.autoLoadInn) {
                 loadAnalyticsByInn(options.autoLoadInn);
+            } else if (options.initialFinscore) {
+                // Серверный рендер уже на странице — только оживим график/факторы.
+                mountFinScoreInteractions(options.initialFinscore);
             }
             return;
         }
