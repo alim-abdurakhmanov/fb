@@ -113,7 +113,7 @@ if ($termMonths > 0) {
 $mgrBankCommentHtml = trim((string) ($caseRow['manager_comment'] ?? ''));
 ?>
 <link rel="stylesheet" href="assets/css/application_tabs.css">
-<link rel="stylesheet" href="assets/css/company_analytics.css">
+<link rel="stylesheet" href="assets/css/company_analytics.css?v=<?= (int) (@filemtime(__DIR__ . '/assets/css/company_analytics.css') ?: time()) ?>">
 
 <div class="row">
     <div class="col-12">
@@ -529,7 +529,7 @@ $mgrBankCommentHtml = trim((string) ($caseRow['manager_comment'] ?? ''));
 </style>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-<script src="assets/js/company_analytics.js"></script>
+<script src="assets/js/company_analytics.js?v=<?= (int) (@filemtime(__DIR__ . '/assets/js/company_analytics.js') ?: time()) ?>"></script>
 <script>
 (function () {
     const caseId = <?= (int) $caseId ?>;
