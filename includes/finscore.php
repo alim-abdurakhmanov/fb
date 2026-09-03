@@ -93,15 +93,15 @@ function finscore_grade(int $score): array
         return ['score' => $score, 'grade' => 'A', 'label' => 'Сильный профиль', 'color' => '#1a7f4b'];
     }
     if ($score >= 65) {
-        return ['score' => $score, 'grade' => 'B', 'label' => 'Норма', 'color' => '#2f6fed'];
+        return ['score' => $score, 'grade' => 'B', 'label' => 'Устойчивый профиль', 'color' => '#2f6fed'];
     }
     if ($score >= 45) {
-        return ['score' => $score, 'grade' => 'C', 'label' => 'Осторожно', 'color' => '#c48a00'];
+        return ['score' => $score, 'grade' => 'C', 'label' => 'Повышенный риск', 'color' => '#c48a00'];
     }
     if ($score >= 25) {
         return ['score' => $score, 'grade' => 'D', 'label' => 'Высокий риск', 'color' => '#d9480f'];
     }
-    return ['score' => $score, 'grade' => 'E', 'label' => 'Стоп / индивидуально', 'color' => '#c92a2a'];
+    return ['score' => $score, 'grade' => 'E', 'label' => 'Только ручная проверка', 'color' => '#c92a2a'];
 }
 
 /**
@@ -261,12 +261,12 @@ function finscore_evaluate(array $bundle, array $options = []): array
     $dataPoints++;
     if ($taxDebt > 1_000_000) {
         $debtScore -= 12;
-        $factors[] = ['id' => 'tax_high', 'label' => 'Налоговая задолженность', 'tone' => 'bad', 'detail' => finscore_format_money($taxDebt) . ' ₽'];
+        $factors[] = ['id' => 'tax_high', 'label' => 'Задолженность по налогам', 'tone' => 'bad', 'detail' => finscore_format_money($taxDebt) . ' ₽'];
     } elseif ($taxDebt > 0) {
         $debtScore -= 5;
-        $factors[] = ['id' => 'tax_low', 'label' => 'Есть налоговая недоимка', 'tone' => 'warn', 'detail' => finscore_format_money($taxDebt) . ' ₽'];
+        $factors[] = ['id' => 'tax_low', 'label' => 'Задолженность по налогам', 'tone' => 'warn', 'detail' => finscore_format_money($taxDebt) . ' ₽'];
     } else {
-        $factors[] = ['id' => 'tax_ok', 'label' => 'Налоговых долгов нет', 'tone' => 'good', 'detail' => '0 ₽'];
+        $factors[] = ['id' => 'tax_ok', 'label' => 'Задолженности по налогам нет', 'tone' => 'good', 'detail' => '0 ₽'];
     }
 
     $dataPoints++;
@@ -331,14 +331,29 @@ function finscore_evaluate(array $bundle, array $options = []): array
     }
     $gradeInfo = finscore_grade($rawScore);
 
-    // Confidence by data completeness
+    // Полнота данных для оценки
     $confidenceRatio = $dataPointsMax > 0 ? $dataPoints / $dataPointsMax : 0;
     if ($confidenceRatio >= 0.75) {
-        $confidence = ['level' => 'high', 'label' => 'Высокая', 'ratio' => $confidenceRatio];
+        $confidence = [
+            'level' => 'high',
+            'label' => 'по полным открытым данным',
+            'short' => 'данные полные',
+            'ratio' => $confidenceRatio,
+        ];
     } elseif ($confidenceRatio >= 0.45) {
-        $confidence = ['level' => 'medium', 'label' => 'Средняя', 'ratio' => $confidenceRatio];
+        $confidence = [
+            'level' => 'medium',
+            'label' => 'по частично доступным данным',
+            'short' => 'данные частичные',
+            'ratio' => $confidenceRatio,
+        ];
     } else {
-        $confidence = ['level' => 'low', 'label' => 'Низкая', 'ratio' => $confidenceRatio];
+        $confidence = [
+            'level' => 'low',
+            'label' => 'по ограниченным данным',
+            'short' => 'данных мало',
+            'ratio' => $confidenceRatio,
+        ];
     }
 
     // Limit calculation

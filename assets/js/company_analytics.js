@@ -88,7 +88,6 @@
         const factors = Array.isArray(finscore.factors) ? finscore.factors : [];
         const hardStops = Array.isArray(finscore.hard_stops) ? finscore.hard_stops : [];
         const series = finscore.finance && Array.isArray(finscore.finance.series) ? finscore.finance.series : [];
-        const confidence = (finscore.confidence && finscore.confidence.label) ? finscore.confidence.label : '';
         const metrics = finscore.metrics || {};
         const finance = finscore.finance || {};
 
@@ -103,11 +102,32 @@
                 </button>`;
         });
 
-        const limitBlock = individual
-            ? `<div class="fs-limit">Индивидуально</div>
-               <div class="fs-limit-sub">Автолимит недоступен — нужен ручной разбор</div>`
-            : `<div class="fs-limit">${formatMoneyRu(bg.value)} ₽</div>
-               <div class="fs-limit-sub">Ориентир БГ · диапазон ${formatMoneyRu(bg.low)} – ${formatMoneyRu(bg.high)} ₽</div>`;
+        const confidenceText = (finscore.confidence && (finscore.confidence.label || finscore.confidence.short))
+            ? (finscore.confidence.label || finscore.confidence.short)
+            : '';
+
+        function limitCard(title, value, low, high, isIndividual) {
+            if (isIndividual || !(value > 0)) {
+                return `
+                <div class="fs-limit-card">
+                    <div class="fs-limit-title">${escapeHtml(title)}</div>
+                    <div class="fs-limit-value">Индивидуально</div>
+                    <div class="fs-limit-range">Нужен ручной разбор</div>
+                </div>`;
+            }
+            return `
+                <div class="fs-limit-card">
+                    <div class="fs-limit-title">${escapeHtml(title)}</div>
+                    <div class="fs-limit-value">${formatMoneyRu(value)} ₽</div>
+                    <div class="fs-limit-range">Диапазон ${formatMoneyRu(low)} – ${formatMoneyRu(high)} ₽</div>
+                </div>`;
+        }
+
+        const limitsHtml = `
+            <div class="fs-limits">
+                ${limitCard('Ориентир по БГ', bg.value, bg.low, bg.high, individual)}
+                ${limitCard('Ориентир по кредиту', credit.value, credit.low, credit.high, individual || !(credit.value > 0))}
+            </div>`;
 
         const chartCanvas = series.length > 1
             ? `<div class="fs-chart-wrap"><canvas id="finscore-finance-chart" height="120"></canvas></div>`
@@ -131,19 +151,15 @@
                 </div>
                 <div class="fs-meta">
                     <h5 class="mb-1">${escapeHtml(companyName)}</h5>
-                    <div class="text-muted mb-2">
-                        FinScore · ${escapeHtml(gradeLabel)}
-                        ${confidence ? ` · уверенность: ${escapeHtml(confidence)}` : ''}
+                    <div class="fs-grade-line">
+                        Оценка ${escapeHtml(String(grade))} — ${escapeHtml(gradeLabel)}
                     </div>
-                    ${limitBlock}
-                    <div class="fs-secondary-limit">
-                        Кредит: ${individual || !(credit.value > 0)
-                            ? 'индивидуально'
-                            : formatMoneyRu(credit.value) + ' ₽ (' + formatMoneyRu(credit.low) + ' – ' + formatMoneyRu(credit.high) + ')'}
-                    </div>
-                    <div class="text-muted small mt-1">${escapeHtml(finscore.recommendation || '')}</div>
+                    ${confidenceText ? `<div class="fs-data-line">Расчёт ${escapeHtml(confidenceText)}</div>` : ''}
+                    <div class="text-muted small mt-2">${escapeHtml(finscore.recommendation || '')}</div>
                 </div>
             </div>
+
+            ${limitsHtml}
 
             <div class="fs-kpis">
                 <div class="fs-kpi">

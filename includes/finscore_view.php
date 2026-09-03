@@ -94,21 +94,25 @@ function finscore_render_header_html(?array $finscore): string
     $individual = !empty($finscore['individual_only']) || !((float) ($bg['value'] ?? 0) > 0);
     $factors = is_array($finscore['factors'] ?? null) ? $finscore['factors'] : [];
     $hardStops = is_array($finscore['hard_stops'] ?? null) ? $finscore['hard_stops'] : [];
-    $confidence = (string) ($finscore['confidence']['label'] ?? '');
+    $confidence = (string) ($finscore['confidence']['label'] ?? $finscore['confidence']['short'] ?? '');
     $metrics = is_array($finscore['metrics'] ?? null) ? $finscore['metrics'] : [];
     $finance = is_array($finscore['finance'] ?? null) ? $finscore['finance'] : [];
     $series = is_array($finance['series'] ?? null) ? $finance['series'] : [];
 
-    $limitBlock = $individual
-        ? '<div class="fs-limit">Индивидуально</div><div class="fs-limit-sub">Автолимит недоступен — нужен ручной разбор</div>'
-        : '<div class="fs-limit">' . finscore_money_html($bg['value'] ?? 0) . ' ₽</div>'
-            . '<div class="fs-limit-sub">Ориентир БГ · диапазон '
-            . finscore_money_html($bg['low'] ?? 0) . ' – ' . finscore_money_html($bg['high'] ?? 0) . ' ₽</div>';
-
-    $creditText = ($individual || !((float) ($credit['value'] ?? 0) > 0))
-        ? 'индивидуально'
-        : finscore_money_html($credit['value'] ?? 0) . ' ₽ ('
-            . finscore_money_html($credit['low'] ?? 0) . ' – ' . finscore_money_html($credit['high'] ?? 0) . ')';
+    $renderLimitCard = static function (string $title, float $value, float $low, float $high, bool $individual): string {
+        if ($individual || !($value > 0)) {
+            return '<div class="fs-limit-card">'
+                . '<div class="fs-limit-title">' . finscore_h($title) . '</div>'
+                . '<div class="fs-limit-value">Индивидуально</div>'
+                . '<div class="fs-limit-range">Нужен ручной разбор</div>'
+                . '</div>';
+        }
+        return '<div class="fs-limit-card">'
+            . '<div class="fs-limit-title">' . finscore_h($title) . '</div>'
+            . '<div class="fs-limit-value">' . finscore_money_html($value) . ' ₽</div>'
+            . '<div class="fs-limit-range">Диапазон ' . finscore_money_html($low) . ' – ' . finscore_money_html($high) . ' ₽</div>'
+            . '</div>';
+    };
 
     $html = '<div class="fs-header mb-4" style="--fs-score:' . $score . ';--fs-color:' . finscore_h($color) . ';">';
     $html .= '<div class="fs-header-main">';
@@ -118,15 +122,29 @@ function finscore_render_header_html(?array $finscore): string
     $html .= '</div></div>';
     $html .= '<div class="fs-meta">';
     $html .= '<h5 class="mb-1">' . finscore_h($companyName) . '</h5>';
-    $html .= '<div class="text-muted mb-2">FinScore · ' . finscore_h($gradeLabel);
+    $html .= '<div class="fs-grade-line">Оценка ' . finscore_h($grade) . ' — ' . finscore_h($gradeLabel) . '</div>';
     if ($confidence !== '') {
-        $html .= ' · уверенность: ' . finscore_h($confidence);
+        $html .= '<div class="fs-data-line">Расчёт ' . finscore_h($confidence) . '</div>';
     }
-    $html .= '</div>';
-    $html .= $limitBlock;
-    $html .= '<div class="fs-secondary-limit">Кредит: ' . finscore_h($creditText) . '</div>';
-    $html .= '<div class="text-muted small mt-1">' . finscore_h((string) ($finscore['recommendation'] ?? '')) . '</div>';
+    $html .= '<div class="text-muted small mt-2">' . finscore_h((string) ($finscore['recommendation'] ?? '')) . '</div>';
     $html .= '</div></div>';
+
+    $html .= '<div class="fs-limits">';
+    $html .= $renderLimitCard(
+        'Ориентир по БГ',
+        (float) ($bg['value'] ?? 0),
+        (float) ($bg['low'] ?? 0),
+        (float) ($bg['high'] ?? 0),
+        $individual
+    );
+    $html .= $renderLimitCard(
+        'Ориентир по кредиту',
+        (float) ($credit['value'] ?? 0),
+        (float) ($credit['low'] ?? 0),
+        (float) ($credit['high'] ?? 0),
+        $individual || !((float) ($credit['value'] ?? 0) > 0)
+    );
+    $html .= '</div>';
 
     $html .= '<div class="fs-kpis">';
     $html .= '<div class="fs-kpi"><div class="label">Выручка' . (!empty($finance['year']) ? ' ' . (int) $finance['year'] : '') . '</div>';
