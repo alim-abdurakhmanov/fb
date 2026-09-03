@@ -152,10 +152,13 @@
                 <div class="fs-meta">
                     <h5 class="mb-1">${escapeHtml(companyName)}</h5>
                     <div class="fs-grade-line">
-                        Оценка ${escapeHtml(String(grade))} — ${escapeHtml(gradeLabel)}
+                        FinScore ${score} из 100 · класс ${escapeHtml(String(grade))}
                     </div>
-                    ${confidenceText ? `<div class="fs-data-line">Расчёт ${escapeHtml(confidenceText)}</div>` : ''}
-                    <div class="text-muted small mt-2">${escapeHtml(finscore.recommendation || '')}</div>
+                    <div class="fs-verdict-line">${escapeHtml(gradeLabel)}</div>
+                    ${confidenceText ? `<div class="fs-data-line">${escapeHtml(confidenceText)}</div>` : ''}
+                    ${finscore.recommendation && finscore.recommendation !== gradeLabel
+                        ? `<div class="text-muted small mt-2">${escapeHtml(finscore.recommendation)}</div>`
+                        : ''}
                 </div>
             </div>
 

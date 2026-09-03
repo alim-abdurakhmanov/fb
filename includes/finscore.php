@@ -89,19 +89,45 @@ function finscore_latest_finance_year(array $series): ?array
 function finscore_grade(int $score): array
 {
     $score = max(0, min(100, $score));
+    // Подписи — вывод для менеджера, не абстрактный «профиль».
     if ($score >= 80) {
-        return ['score' => $score, 'grade' => 'A', 'label' => 'Сильный профиль', 'color' => '#1a7f4b'];
+        return [
+            'score' => $score,
+            'grade' => 'A',
+            'label' => 'Можно рассматривать в работу',
+            'color' => '#1a7f4b',
+        ];
     }
     if ($score >= 65) {
-        return ['score' => $score, 'grade' => 'B', 'label' => 'Устойчивый профиль', 'color' => '#2f6fed'];
+        return [
+            'score' => $score,
+            'grade' => 'B',
+            'label' => 'Можно рассматривать после стандартной проверки',
+            'color' => '#2f6fed',
+        ];
     }
     if ($score >= 45) {
-        return ['score' => $score, 'grade' => 'C', 'label' => 'Повышенный риск', 'color' => '#c48a00'];
+        return [
+            'score' => $score,
+            'grade' => 'C',
+            'label' => 'Нужна дополнительная проверка',
+            'color' => '#c48a00',
+        ];
     }
     if ($score >= 25) {
-        return ['score' => $score, 'grade' => 'D', 'label' => 'Высокий риск', 'color' => '#d9480f'];
+        return [
+            'score' => $score,
+            'grade' => 'D',
+            'label' => 'Высокий риск — только индивидуально',
+            'color' => '#d9480f',
+        ];
     }
-    return ['score' => $score, 'grade' => 'E', 'label' => 'Только ручная проверка', 'color' => '#c92a2a'];
+    return [
+        'score' => $score,
+        'grade' => 'E',
+        'label' => 'Автооценка не подходит — нужен ручной разбор',
+        'color' => '#c92a2a',
+    ];
 }
 
 /**
@@ -331,27 +357,27 @@ function finscore_evaluate(array $bundle, array $options = []): array
     }
     $gradeInfo = finscore_grade($rawScore);
 
-    // Полнота данных для оценки
+    // Полнота данных: предупреждение только если чего-то не хватает.
     $confidenceRatio = $dataPointsMax > 0 ? $dataPoints / $dataPointsMax : 0;
     if ($confidenceRatio >= 0.75) {
         $confidence = [
             'level' => 'high',
-            'label' => 'по полным открытым данным',
-            'short' => 'данные полные',
+            'label' => '',
+            'short' => '',
             'ratio' => $confidenceRatio,
         ];
     } elseif ($confidenceRatio >= 0.45) {
         $confidence = [
             'level' => 'medium',
-            'label' => 'по частично доступным данным',
-            'short' => 'данные частичные',
+            'label' => 'Часть данных недоступна — оценка предварительная',
+            'short' => 'оценка предварительная',
             'ratio' => $confidenceRatio,
         ];
     } else {
         $confidence = [
             'level' => 'low',
-            'label' => 'по ограниченным данным',
-            'short' => 'данных мало',
+            'label' => 'Мало данных — оценка ориентировочная',
+            'short' => 'оценка ориентировочная',
             'ratio' => $confidenceRatio,
         ];
     }
@@ -435,8 +461,8 @@ function finscore_evaluate(array $bundle, array $options = []): array
         ],
         'existing_credits' => $existingCredits,
         'recommendation' => $individualOnly
-            ? 'Только индивидуальный расчёт'
-            : ($rawScore >= 65 ? 'Можно рассматривать в работу' : 'Нужна дополнительная проверка'),
+            ? 'Автолимит недоступен — запросите индивидуальный расчёт'
+            : ($gradeInfo['label'] ?? 'Нужна дополнительная проверка'),
     ];
 }
 

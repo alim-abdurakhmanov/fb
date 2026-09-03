@@ -151,14 +151,22 @@
 }
 
 .fs-grade-line {
-    font-size: 1rem;
+    font-size: 0.95rem;
     font-weight: 600;
+    color: #334155;
+}
+
+.fs-verdict-line {
+    margin-top: 0.25rem;
+    font-size: 1.05rem;
+    font-weight: 700;
     color: #1b2838;
+    line-height: 1.35;
 }
 
 .fs-data-line {
-    margin-top: 0.2rem;
-    color: #64748b;
+    margin-top: 0.35rem;
+    color: #9a6700;
     font-size: 0.9rem;
 }
 
