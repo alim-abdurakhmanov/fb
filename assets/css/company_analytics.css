@@ -162,9 +162,79 @@
     font-size: 0.9rem;
 }
 
+.fs-secondary-limit {
+    margin-top: 0.25rem;
+    color: #334155;
+    font-size: 0.92rem;
+}
+
+.fs-kpis {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 0.65rem;
+    margin-top: 1rem;
+}
+
+.fs-kpi {
+    background: rgba(255, 255, 255, 0.85);
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 0.7rem 0.75rem;
+}
+
+.fs-kpi .label {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #64748b;
+}
+
+.fs-kpi .value {
+    font-weight: 650;
+    color: #1b2838;
+    font-size: 0.95rem;
+}
+
+.fs-hardstops {
+    margin-top: 0.9rem;
+    padding: 0.75rem 0.9rem;
+    border-radius: 12px;
+    background: #fff5f5;
+    border: 1px solid #ffc9c9;
+    color: #c92a2a;
+    font-size: 0.9rem;
+}
+
+.fs-hardstops ul {
+    margin: 0.4rem 0 0;
+    padding-left: 1.1rem;
+}
+
+.fs-factors-title {
+    margin-top: 1rem;
+    font-weight: 600;
+    color: #1b2838;
+}
+
+.fs-factors-title span {
+    font-weight: 400;
+    color: #64748b;
+    font-size: 0.85rem;
+}
+
 .fs-chart-wrap {
     margin-top: 1rem;
     height: 180px;
+}
+
+.analytics-finance-table th,
+.analytics-finance-table td {
+    white-space: nowrap;
+    vertical-align: middle;
+}
+
+.analytics-finance-table .status-circle {
+    margin-right: 6px;
 }
 
 .fs-factors {
@@ -216,6 +286,10 @@
         grid-template-columns: 1fr;
         justify-items: center;
         text-align: center;
+    }
+
+    .fs-kpis {
+        grid-template-columns: 1fr 1fr;
     }
 }
 
