@@ -888,7 +888,13 @@ require_once 'header.php';
                         </div>
                         <div class="finscore-meta">
                             <h5><?= htmlspecialchars((string) ($fs['company_name'] ?? $calculationData['company_name'] ?? 'Компания')) ?></h5>
-                            <div class="text-muted mb-2">ИНН <?= htmlspecialchars((string) ($calculationData['inn'] ?? '')) ?> · <?= htmlspecialchars($gradeLabel) ?></div>
+                            <div class="text-muted mb-2">
+                                ИНН <?= htmlspecialchars((string) ($calculationData['inn'] ?? '')) ?>
+                                · Оценка <?= htmlspecialchars($grade) ?> — <?= htmlspecialchars($gradeLabel) ?>
+                            </div>
+                            <?php if (!empty($fs['confidence']['label'])): ?>
+                                <div class="text-muted small mb-2">Расчёт <?= htmlspecialchars((string) $fs['confidence']['label']) ?></div>
+                            <?php endif; ?>
                             <?php if ($individualOnly || $limitVal <= 0): ?>
                                 <div class="finscore-range">Индивидуально</div>
                                 <div class="finscore-range-sub">Автолимит недоступен — нужен ручной разбор</div>
@@ -896,9 +902,6 @@ require_once 'header.php';
                                 <div class="finscore-range"><?= formatNumber($limitVal) ?> ₽</div>
                                 <div class="finscore-range-sub">
                                     Диапазон <?= formatNumber($limitLow) ?> – <?= formatNumber($limitHigh) ?> ₽
-                                    <?php if (!empty($fs['confidence']['label'])): ?>
-                                        · уверенность: <?= htmlspecialchars((string) $fs['confidence']['label']) ?>
-                                    <?php endif; ?>
                                 </div>
                             <?php endif; ?>
                         </div>

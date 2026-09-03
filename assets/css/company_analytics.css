@@ -150,6 +150,54 @@
     color: #5c6b7a;
 }
 
+.fs-grade-line {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #1b2838;
+}
+
+.fs-data-line {
+    margin-top: 0.2rem;
+    color: #64748b;
+    font-size: 0.9rem;
+}
+
+.fs-limits {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem;
+    margin-top: 1rem;
+}
+
+.fs-limit-card {
+    background: rgba(255, 255, 255, 0.9);
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 0.85rem 1rem;
+}
+
+.fs-limit-title {
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #64748b;
+    margin-bottom: 0.25rem;
+}
+
+.fs-limit-value {
+    font-size: 1.35rem;
+    font-weight: 700;
+    color: #1b2838;
+    letter-spacing: -0.02em;
+    line-height: 1.2;
+}
+
+.fs-limit-range {
+    margin-top: 0.2rem;
+    color: #5c6b7a;
+    font-size: 0.9rem;
+}
+
 .fs-limit {
     font-size: 1.6rem;
     font-weight: 700;
@@ -290,6 +338,10 @@
 
     .fs-kpis {
         grid-template-columns: 1fr 1fr;
+    }
+
+    .fs-limits {
+        grid-template-columns: 1fr;
     }
 }
 
