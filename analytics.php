@@ -10,6 +10,7 @@ $companyData = null;
 $financeData = null;
 $enforcementsData = null;
 $lawsuitsData = null;
+$finscoreResult = null;
 $error = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -20,40 +21,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif (!preg_match('/^\d{10,12}$/', $inn)) {
         $error = "ИНН должен состоять из 10–12 цифр";
     } else {
-        // Получаем данные из API Checko
-        $apiKey = "BXLApjLYuoc0nGvM";
-        
-        $baseUrl = "https://api.checko.ru/v2/";
-        
-        function getApiData($url) {
-            $ch = curl_init();
-            curl_setopt_array($ch, [
-                CURLOPT_URL            => $url,
-                CURLOPT_RETURNTRANSFER => true,
-                CURLOPT_TIMEOUT        => 10,
-                CURLOPT_SSL_VERIFYPEER => false
-            ]);
-            $response = curl_exec($ch);
-            curl_close($ch);
-            return json_decode($response, true);
-        }
-        
+        require_once __DIR__ . '/includes/finscore.php';
         try {
-            $companyData = getApiData("$baseUrl/company?key=$apiKey&inn=$inn");
-            $financeData = getApiData("$baseUrl/finances?key=$apiKey&inn=$inn");
-            $enforcementsData = getApiData("$baseUrl/enforcements?key=$apiKey&inn=$inn");
-            $lawsuitsData = getApiData("$baseUrl/legal-cases?key=$apiKey&inn=$inn");
-            
-            // Сохраняем запрос в историю
-            $stmt = $pdo->prepare("INSERT INTO analytics_requests (user_id, inn, response_data, created_at) VALUES (?, ?, ?, NOW())");
-            $responseData = json_encode([
-                'company' => $companyData,
-                'finance' => $financeData,
-                'enforcements' => $enforcementsData,
-                'lawsuits' => $lawsuitsData
-            ]);
-            $stmt->execute([$_SESSION['user_id'], $inn, $responseData]);
-            
+            $built = finscore_build_for_inn($inn, ['product_type' => 'bg']);
+            if (empty($built['ok'])) {
+                $error = $built['error'] ?? 'Не удалось получить данные';
+            } else {
+                $raw = $built['raw'] ?? [];
+                $companyData = $raw['company'] ?? null;
+                $financeData = $raw['finance'] ?? null;
+                $enforcementsData = $raw['enforcements'] ?? null;
+                $lawsuitsData = $raw['lawsuits'] ?? null;
+                $finscoreResult = $built['result'] ?? null;
+
+                $stmt = $pdo->prepare("INSERT INTO analytics_requests (user_id, inn, response_data, created_at) VALUES (?, ?, ?, NOW())");
+                $responseData = json_encode([
+                    'company' => $companyData,
+                    'finance' => $financeData,
+                    'enforcements' => $enforcementsData,
+                    'lawsuits' => $lawsuitsData,
+                    'finscore' => $finscoreResult,
+                ], JSON_UNESCAPED_UNICODE);
+                $stmt->execute([$_SESSION['user_id'], $inn, $responseData]);
+            }
         } catch (Exception $e) {
             $error = "Ошибка при получении данных: " . $e->getMessage();
         }
@@ -286,6 +276,36 @@ function formatDateWeb($date) {
     
     <div class="col-lg-8">
         <?php if ($_SERVER['REQUEST_METHOD'] === 'POST' && empty($error) && $companyData): ?>
+            <?php if (is_array($finscoreResult)): ?>
+            <div class="card mb-4 border-0" style="background:linear-gradient(135deg,#f4f7fb,#e8f0ea);">
+                <div class="card-body">
+                    <div class="d-flex flex-wrap align-items-center gap-3">
+                        <div class="text-center" style="min-width:88px;">
+                            <div class="fw-bold" style="font-size:2rem;color:<?= htmlspecialchars((string) $finscoreResult['grade_color']) ?>;">
+                                <?= htmlspecialchars((string) $finscoreResult['grade']) ?>
+                            </div>
+                            <div class="text-muted small"><?= (int) $finscoreResult['score'] ?>/100</div>
+                        </div>
+                        <div class="flex-grow-1">
+                            <h5 class="mb-1">FinScore · <?= htmlspecialchars((string) $finscoreResult['grade_label']) ?></h5>
+                            <div class="fw-semibold mb-1">
+                                <?php if (!empty($finscoreResult['individual_only'])): ?>
+                                    Лимит БГ: индивидуально
+                                <?php else: ?>
+                                    Ориентир БГ: <?= number_format((float) ($finscoreResult['limits']['bg']['value'] ?? 0), 0, '', ' ') ?> ₽
+                                    <span class="text-muted fw-normal">
+                                        (<?= number_format((float) ($finscoreResult['limits']['bg']['low'] ?? 0), 0, '', ' ') ?>
+                                        –
+                                        <?= number_format((float) ($finscoreResult['limits']['bg']['high'] ?? 0), 0, '', ' ') ?>)
+                                    </span>
+                                <?php endif; ?>
+                            </div>
+                            <div class="text-muted small"><?= htmlspecialchars((string) ($finscoreResult['recommendation'] ?? '')) ?></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <?php endif; ?>
             <!-- Основная информация о компании -->
             <div class="card mb-4">
                 <div class="card-header">

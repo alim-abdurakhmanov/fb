@@ -34,6 +34,7 @@ $timestamp = date('Y-m-d H:i:s');
 $fileName = "analytics_cache/analytics_{$applicationId}.json";
 $saveData = [
     'data' => $analyticsData,
+    'finscore' => $data['finscore'] ?? null,
     'timestamp' => $timestamp,
     'updated_at' => $timestamp,
 ];

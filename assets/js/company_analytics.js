@@ -14,7 +14,155 @@
         }
     }
 
-    function renderAnalytics(data) {
+    function escapeHtml(text) {
+        if (!text) return '';
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    function formatMoneyRu(number) {
+        const n = Number(number) || 0;
+        return Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+    }
+
+    function renderFinScoreHeader(finscore) {
+        if (!finscore || typeof finscore !== 'object') {
+            return '';
+        }
+
+        const score = Math.max(0, Math.min(100, Number(finscore.score) || 0));
+        const grade = finscore.grade || '—';
+        const gradeLabel = finscore.grade_label || '';
+        const color = finscore.grade_color || '#2f6fed';
+        const companyName = finscore.company_name || 'Компания';
+        const limits = finscore.limits && finscore.limits.bg ? finscore.limits.bg : { value: 0, low: 0, high: 0 };
+        const individual = !!finscore.individual_only || !(limits.value > 0);
+        const factors = Array.isArray(finscore.factors) ? finscore.factors : [];
+        const series = finscore.finance && Array.isArray(finscore.finance.series) ? finscore.finance.series : [];
+
+        let factorsHtml = '';
+        factors.forEach(function (f) {
+            const tone = f.tone || 'warn';
+            factorsHtml += `
+                <button type="button" class="fs-factor" data-fs-factor>
+                    <span class="fs-tone ${tone}"></span>
+                    <strong>${escapeHtml(f.label || '')}</strong>
+                    <div class="fs-factor-detail">${escapeHtml(f.detail || '')}</div>
+                </button>`;
+        });
+
+        const limitBlock = individual
+            ? `<div class="fs-limit">Индивидуально</div>
+               <div class="fs-limit-sub">Автолимит недоступен</div>`
+            : `<div class="fs-limit">${formatMoneyRu(limits.value)} ₽</div>
+               <div class="fs-limit-sub">Диапазон ${formatMoneyRu(limits.low)} – ${formatMoneyRu(limits.high)} ₽</div>`;
+
+        const chartCanvas = series.length > 1
+            ? `<div class="fs-chart-wrap"><canvas id="finscore-finance-chart" height="120"></canvas></div>`
+            : '';
+
+        return `
+        <div class="fs-header mb-4" style="--fs-score:${score};--fs-color:${color};">
+            <div class="fs-header-main">
+                <div class="fs-ring" aria-hidden="true">
+                    <div class="fs-ring-inner">
+                        <div class="fs-grade">${escapeHtml(String(grade))}</div>
+                        <div class="fs-score">${score}/100</div>
+                    </div>
+                </div>
+                <div class="fs-meta">
+                    <h5 class="mb-1">${escapeHtml(companyName)}</h5>
+                    <div class="text-muted mb-2">FinScore · ${escapeHtml(gradeLabel)}</div>
+                    ${limitBlock}
+                    <div class="text-muted small mt-1">${escapeHtml(finscore.recommendation || '')}</div>
+                </div>
+            </div>
+            ${chartCanvas}
+            ${factorsHtml ? `<div class="fs-factors">${factorsHtml}</div>` : ''}
+        </div>`;
+    }
+
+    function mountFinScoreInteractions(finscore) {
+        document.querySelectorAll('[data-fs-factor]').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                const active = btn.classList.contains('is-active');
+                document.querySelectorAll('[data-fs-factor]').forEach(function (el) {
+                    el.classList.remove('is-active');
+                });
+                if (!active) {
+                    btn.classList.add('is-active');
+                }
+            });
+        });
+
+        const series = finscore && finscore.finance && Array.isArray(finscore.finance.series)
+            ? finscore.finance.series
+            : [];
+        const canvas = document.getElementById('finscore-finance-chart');
+        if (!canvas || series.length < 2 || typeof Chart === 'undefined') {
+            return;
+        }
+
+        const labels = series.map(function (r) { return String(r.year); });
+        const revenue = series.map(function (r) { return Number(r.revenue) || 0; });
+        const profit = series.map(function (r) { return Number(r.profit) || 0; });
+
+        if (canvas._fsChart) {
+            canvas._fsChart.destroy();
+        }
+        canvas._fsChart = new Chart(canvas.getContext('2d'), {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [
+                    {
+                        label: 'Выручка',
+                        data: revenue,
+                        borderColor: '#2f6fed',
+                        backgroundColor: 'rgba(47,111,237,0.12)',
+                        tension: 0.25,
+                        fill: true,
+                    },
+                    {
+                        label: 'Прибыль',
+                        data: profit,
+                        borderColor: '#1a7f4b',
+                        backgroundColor: 'rgba(26,127,75,0.08)',
+                        tension: 0.25,
+                        fill: false,
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { position: 'bottom' },
+                    tooltip: {
+                        callbacks: {
+                            label: function (ctx) {
+                                return ctx.dataset.label + ': ' + formatMoneyRu(ctx.raw) + ' ₽';
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    y: {
+                        ticks: {
+                            callback: function (v) {
+                                if (Math.abs(v) >= 1e6) return (v / 1e6).toFixed(1) + ' млн';
+                                if (Math.abs(v) >= 1e3) return (v / 1e3).toFixed(0) + ' тыс';
+                                return v;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    function renderAnalytics(data, finscore) {
         const container = document.getElementById('analytics-content');
 
         function getStatusCircle(value, type = 'default') {
@@ -110,14 +258,7 @@
             }
         }
 
-        function escapeHtml(text) {
-            if (!text) return '';
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
-        }
-
-        let html = '';
+        let html = renderFinScoreHeader(finscore);
 
         if (data.company && data.company.data) {
             const d = data.company.data;
@@ -253,49 +394,45 @@
 
         if (data.finance && data.finance.data) {
             const f = data.finance.data;
-            const rev24 = parseInt(f[2024]?.['2110'] || 0);
-            const profit24 = parseInt(f[2024]?.['2400'] || 0);
-            const rev25 = parseInt(f[2025]?.['2110'] || 0);
-            const profit25 = parseInt(f[2025]?.['2400'] || 0);
+            const yearKeys = Object.keys(f)
+                .map(function (k) { return parseInt(k, 10); })
+                .filter(function (y) { return y >= 2015 && y <= 2100; })
+                .sort(function (a, b) { return a - b; });
+            const lastYears = yearKeys.slice(-2);
 
-            html += `
-            <div class="row">
-                <div class="col-md-6">
-                    <h6>2024 год</h6>
-                    <table class="table table-sm analytics-table">
-                        <tbody>
-                            <tr>
-                                <td width="40" style="border: none;">${getStatusCircle(rev24, 'numeric_positive')}</td>
-                                <td style="border: none;"><strong>Выручка:</strong></td>
-                                <td style="border: none;">${formatNumberWeb(rev24)} руб.</td>
-                            </tr>
-                            <tr>
-                                <td style="border: none;">${getStatusCircle(profit24, 'numeric_positive')}</td>
-                                <td style="border: none;"><strong>Чистая прибыль:</strong></td>
-                                <td style="border: none;">${formatNumberWeb(profit24)} руб.</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-                <div class="col-md-6">
-                    <h6>2025 год</h6>
-                    <table class="table table-sm analytics-table">
-                        <tbody>
-                            <tr>
-                                <td width="40" style="border: none;">${getStatusCircle(rev25, 'numeric_positive')}</td>
-                                <td style="border: none;"><strong>Выручка:</strong></td>
-                                <td style="border: none;">${formatNumberWeb(rev25)} руб.</td>
-                            </tr>
-                            <tr>
-                                <td style="border: none;">${getStatusCircle(profit25, 'numeric_positive')}</td>
-                                <td style="border: none;"><strong>Чистая прибыль:</strong></td>
-                                <td style="border: none;">${formatNumberWeb(profit25)} руб.</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
+            if (lastYears.length === 0) {
+                html += `
+            <div class="alert alert-info">
+                <i class="bi bi-info-circle me-2"></i>Финансовая отчетность не найдена
             </div>
         `;
+            } else {
+                html += `<div class="row">`;
+                lastYears.forEach(function (year) {
+                    const row = f[year] || f[String(year)] || {};
+                    const rev = parseInt(row['2110'] || row['Выручка'] || 0, 10);
+                    const profit = parseInt(row['2400'] || row['ЧистПриб'] || 0, 10);
+                    html += `
+                <div class="col-md-6">
+                    <h6>${year} год</h6>
+                    <table class="table table-sm analytics-table">
+                        <tbody>
+                            <tr>
+                                <td width="40" style="border: none;">${getStatusCircle(rev, 'numeric_positive')}</td>
+                                <td style="border: none;"><strong>Выручка:</strong></td>
+                                <td style="border: none;">${formatNumberWeb(rev)} руб.</td>
+                            </tr>
+                            <tr>
+                                <td style="border: none;">${getStatusCircle(profit, 'numeric_positive')}</td>
+                                <td style="border: none;"><strong>Чистая прибыль:</strong></td>
+                                <td style="border: none;">${formatNumberWeb(profit)} руб.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>`;
+                });
+                html += `</div>`;
+            }
         } else {
             html += `
             <div class="alert alert-info">
@@ -318,7 +455,8 @@
 
         if (data.enforcements && data.enforcements.data) {
             const e = data.enforcements.data;
-            const debt = parseInt(e['ОстЗадолж'] || 0);
+            const debt = parseInt(e['ОстЗадолж'] || e['ОбщСум'] || 0, 10);
+            const count = parseInt(e['КолвоИП'] || e['ОбщКолич'] || 0, 10);
 
             html += `
             <table class="table table-sm analytics-table">
@@ -329,9 +467,9 @@
                         <td style="border: none;">${formatNumberWeb(debt)} руб.</td>
                     </tr>
                     <tr>
-                        <td style="border: none;">${getStatusCircle(e['КолвоИП'] || 0, 'numeric_negative')}</td>
+                        <td style="border: none;">${getStatusCircle(count, 'numeric_negative')}</td>
                         <td style="border: none;"><strong>Количество ИП:</strong></td>
-                        <td style="border: none;">${e['КолвоИП'] || 0}</td>
+                        <td style="border: none;">${count}</td>
                     </tr>
                 </tbody>
             </table>
@@ -358,8 +496,8 @@
 
         if (data.lawsuits && data.lawsuits.data) {
             const l = data.lawsuits.data;
-            const count = parseInt(l['ЗапВсего'] || 0);
-            const claimSum = parseInt(l['СуммИск'] || 0);
+            const count = parseInt(l['ЗапВсего'] || 0, 10);
+            const claimSum = parseInt(l['ОбщСуммИск'] || l['СуммИск'] || 0, 10);
 
             html += `
             <table class="table table-sm analytics-table">
@@ -389,6 +527,7 @@
 
         if (container) {
             container.innerHTML = html;
+            mountFinScoreInteractions(finscore);
         }
     }
 
@@ -433,10 +572,12 @@
         notify('Ошибка при загрузке аналитики: ' + error.message, 'danger');
     }
 
-    function processAnalyticsData(data, isNew = false, timestamp = null) {
+    function processAnalyticsData(data, isNew = false, timestamp = null, finscore = null) {
         const companyNameEl = document.getElementById('company-name');
         if (companyNameEl) {
-            if (data?.company?.data?.НаимСокр) {
+            if (finscore && finscore.company_name) {
+                companyNameEl.textContent = finscore.company_name;
+            } else if (data?.company?.data?.НаимСокр) {
                 companyNameEl.textContent = data.company.data.НаимСокр;
             } else if (data?.company?.data?.НаимПолн) {
                 companyNameEl.textContent = data.company.data.НаимПолн;
@@ -456,7 +597,7 @@
             updateLastUpdated(new Date(timestamp));
         }
 
-        renderAnalytics(data);
+        renderAnalytics(data, finscore);
         showAnalyticsContent();
     }
 
@@ -507,7 +648,8 @@
                                 },
                                 body: JSON.stringify({
                                     application_id: applicationId,
-                                    analytics_data: data.data
+                                    analytics_data: data.data,
+                                    finscore: data.finscore || null
                                 })
                             }).then(function () {
                                 return data;
@@ -518,7 +660,7 @@
                     throw new Error(data.error || 'Неизвестная ошибка');
                 })
                 .then(function (data) {
-                    processAnalyticsData(data.data, true);
+                    processAnalyticsData(data.data, true, null, data.finscore || null);
                     notify('Аналитика успешно обновлена и сохранена!', 'success');
                 })
                 .catch(handleAnalyticsError)
@@ -535,7 +677,7 @@
                 })
                 .then(function (data) {
                     if (data.success) {
-                        processAnalyticsData(data.data, false, data.timestamp);
+                        processAnalyticsData(data.data, false, data.timestamp, data.finscore || null);
                         notify('Аналитика загружена из кэша', 'success');
                     } else {
                         showAnalyticsEmpty();

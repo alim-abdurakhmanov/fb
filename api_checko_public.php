@@ -28,7 +28,12 @@ function fetchCheckoData($url) {
 }
 
 try {
-    $apiKey = "BXLApjLYuoc0nGvM";
+    require_once __DIR__ . '/config.php';
+    $apiKey = CHECKO_API_KEY;
+    if ($apiKey === '') {
+        echo json_encode(['success' => false, 'error' => 'CHECKO_API_KEY не задан']);
+        exit;
+    }
 
     $companyData = fetchCheckoData("https://api.checko.ru/v2/company?key=$apiKey&inn=$inn");
     if ($companyData && isset($companyData['data'])) {
