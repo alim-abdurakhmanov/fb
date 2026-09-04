@@ -164,6 +164,18 @@
 
             ${limitsHtml}
 
+            ${finscore.summary ? `
+            <div class="fs-summary">
+                <div class="fs-summary-head">
+                    <strong>Почему так</strong>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" data-fs-copy-summary>
+                        <i class="bi bi-clipboard me-1"></i>Скопировать резюме
+                    </button>
+                </div>
+                <p class="fs-summary-text mb-0">${escapeHtml(finscore.summary)}</p>
+                <textarea class="visually-hidden" data-fs-summary-bank readonly>${escapeHtml(finscore.summary_bank || finscore.summary)}</textarea>
+            </div>` : ''}
+
             <div class="fs-kpis">
                 <div class="fs-kpi">
                     <div class="label">Выручка${finance.year ? ' ' + finance.year : ''}</div>
@@ -202,6 +214,48 @@
                 });
                 if (!active) {
                     btn.classList.add('is-active');
+                }
+            });
+        });
+
+        document.querySelectorAll('[data-fs-copy-summary]').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                const box = btn.closest('.fs-summary');
+                const area = box ? box.querySelector('[data-fs-summary-bank]') : null;
+                const text = (area && area.value) || (finscore && finscore.summary_bank) || (finscore && finscore.summary) || '';
+                if (!text) {
+                    return;
+                }
+                const original = btn.innerHTML;
+                function done(ok) {
+                    btn.innerHTML = ok
+                        ? '<i class="bi bi-check2 me-1"></i>Скопировано'
+                        : '<i class="bi bi-exclamation me-1"></i>Не удалось';
+                    setTimeout(function () { btn.innerHTML = original; }, 1800);
+                    if (ok) {
+                        notify('Резюме скопировано', 'success');
+                    }
+                }
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(text).then(function () { done(true); }).catch(function () {
+                        try {
+                            area.focus();
+                            area.select();
+                            done(document.execCommand('copy'));
+                        } catch (e) {
+                            done(false);
+                        }
+                    });
+                } else if (area) {
+                    try {
+                        area.classList.remove('visually-hidden');
+                        area.focus();
+                        area.select();
+                        done(document.execCommand('copy'));
+                        area.classList.add('visually-hidden');
+                    } catch (e) {
+                        done(false);
+                    }
                 }
             });
         });

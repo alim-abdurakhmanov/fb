@@ -60,6 +60,10 @@ if (!is_array($finscore) && is_array($analytics)) {
         'enforcements' => $analytics['enforcements']['data'] ?? null,
         'lawsuits' => $analytics['lawsuits']['data'] ?? null,
     ], ['product_type' => 'bg']);
+} elseif (is_array($finscore) && empty($finscore['summary'])) {
+    $summaries = finscore_build_summaries($finscore);
+    $finscore['summary'] = $summaries['summary'];
+    $finscore['summary_bank'] = $summaries['summary_bank'];
 }
 
 echo json_encode([
