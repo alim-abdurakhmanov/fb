@@ -607,12 +607,6 @@ function finscore_build_summaries(array $result): array
             finscore_format_money((float) ($bg['low'] ?? 0)),
             finscore_format_money((float) ($bg['high'] ?? 0))
         );
-        $bankLines[] = sprintf(
-            'Ориентир кредит: %s ₽ (%s – %s)',
-            finscore_format_money((float) ($credit['value'] ?? 0)),
-            finscore_format_money((float) ($credit['low'] ?? 0)),
-            finscore_format_money((float) ($credit['high'] ?? 0))
-        );
     }
 
     if ($confidenceLabel !== '') {

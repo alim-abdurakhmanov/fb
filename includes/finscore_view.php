@@ -143,13 +143,6 @@ function finscore_render_header_html(?array $finscore): string
         (float) ($bg['high'] ?? 0),
         $individual
     );
-    $html .= $renderLimitCard(
-        'Ориентир по кредиту',
-        (float) ($credit['value'] ?? 0),
-        (float) ($credit['low'] ?? 0),
-        (float) ($credit['high'] ?? 0),
-        $individual || !((float) ($credit['value'] ?? 0) > 0)
-    );
     $html .= '</div>';
 
     $summary = trim((string) ($finscore['summary'] ?? ''));

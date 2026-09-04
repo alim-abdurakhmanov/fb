@@ -83,7 +83,6 @@
         const color = finscore.grade_color || '#2f6fed';
         const companyName = finscore.company_name || 'Компания';
         const bg = (finscore.limits && finscore.limits.bg) || { value: 0, low: 0, high: 0 };
-        const credit = (finscore.limits && finscore.limits.credit) || { value: 0, low: 0, high: 0 };
         const individual = !!finscore.individual_only || !(bg.value > 0);
         const factors = Array.isArray(finscore.factors) ? finscore.factors : [];
         const hardStops = Array.isArray(finscore.hard_stops) ? finscore.hard_stops : [];
@@ -126,7 +125,6 @@
         const limitsHtml = `
             <div class="fs-limits">
                 ${limitCard('Ориентир по БГ', bg.value, bg.low, bg.high, individual)}
-                ${limitCard('Ориентир по кредиту', credit.value, credit.low, credit.high, individual || !(credit.value > 0))}
             </div>`;
 
         const chartCanvas = series.length > 1
