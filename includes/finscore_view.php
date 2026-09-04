@@ -90,7 +90,6 @@ function finscore_render_header_html(?array $finscore): string
     $color = (string) ($finscore['grade_color'] ?? '#2f6fed');
     $companyName = (string) ($finscore['company_name'] ?? 'Компания');
     $bg = is_array($finscore['limits']['bg'] ?? null) ? $finscore['limits']['bg'] : ['value' => 0, 'low' => 0, 'high' => 0];
-    $credit = is_array($finscore['limits']['credit'] ?? null) ? $finscore['limits']['credit'] : ['value' => 0, 'low' => 0, 'high' => 0];
     $individual = !empty($finscore['individual_only']) || !((float) ($bg['value'] ?? 0) > 0);
     $factors = is_array($finscore['factors'] ?? null) ? $finscore['factors'] : [];
     $hardStops = is_array($finscore['hard_stops'] ?? null) ? $finscore['hard_stops'] : [];
