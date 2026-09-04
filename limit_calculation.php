@@ -643,12 +643,7 @@ require_once 'header.php';
 }
 
 .fs-summary-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.75rem;
     margin-bottom: 0.75rem;
-    flex-wrap: wrap;
 }
 
 .fs-summary-text {
@@ -973,9 +968,6 @@ require_once 'header.php';
                     <div class="fs-summary text-start mb-3">
                         <div class="fs-summary-head">
                             <strong>Резюме</strong>
-                            <button type="button" class="btn btn-sm btn-outline-secondary" data-fs-copy-summary>
-                                <i class="bi bi-clipboard me-1"></i>Скопировать резюме
-                            </button>
                         </div>
                         <?php if (!empty($fs['summary_items']) && is_array($fs['summary_items'])): ?>
                             <div class="fs-summary-items">
@@ -990,7 +982,6 @@ require_once 'header.php';
                         <?php else: ?>
                             <p class="fs-summary-text mb-0"><?= htmlspecialchars((string) $fs['summary']) ?></p>
                         <?php endif; ?>
-                        <textarea class="visually-hidden" data-fs-summary-bank readonly><?= htmlspecialchars((string) ($fs['summary_bank'] ?? $fs['summary'])) ?></textarea>
                     </div>
                     <?php endif; ?>
 
@@ -1169,26 +1160,6 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 
-    document.querySelectorAll('[data-fs-copy-summary]').forEach(function (btn) {
-        btn.addEventListener('click', function () {
-            const box = btn.closest('.fs-summary');
-            const area = box ? box.querySelector('[data-fs-summary-bank]') : null;
-            const text = area ? area.value : '';
-            if (!text) return;
-            const original = btn.innerHTML;
-            function done(ok) {
-                btn.innerHTML = ok
-                    ? '<i class="bi bi-check2 me-1"></i>Скопировано'
-                    : original;
-                if (ok) setTimeout(function () { btn.innerHTML = original; }, 1800);
-            }
-            if (navigator.clipboard && navigator.clipboard.writeText) {
-                navigator.clipboard.writeText(text).then(function () { done(true); }).catch(function () { done(false); });
-            } else {
-                done(false);
-            }
-        });
-    });
 });
 </script>
 

@@ -519,18 +519,9 @@ function finscore_build_summaries(array $result): array
         }
     }
 
+    // Только выводы, которых нет в шапке / карточке лимита / блоке стоп-факторов.
     $items = [];
-    $items[] = [
-        'label' => 'Оценка',
-        'text' => sprintf('FinScore %d из 100 · класс %s — %s', $score, $grade, rtrim($gradeLabel, '.')),
-    ];
-
-    if ($hardStops !== []) {
-        $items[] = [
-            'label' => 'Стоп-факторы',
-            'text' => implode('; ', array_slice($hardStops, 0, 3)),
-        ];
-    } elseif ($negatives !== []) {
+    if ($negatives !== []) {
         $items[] = [
             'label' => 'На что обратить внимание',
             'text' => implode('; ', array_slice($negatives, 0, 3)),
@@ -542,31 +533,6 @@ function finscore_build_summaries(array $result): array
         ];
     }
 
-    if ($individual) {
-        $items[] = [
-            'label' => 'Лимит БГ',
-            'text' => 'Автолимит недоступен — нужен индивидуальный расчёт',
-        ];
-    } else {
-        $items[] = [
-            'label' => 'Лимит БГ',
-            'text' => sprintf(
-                '%s ₽ · диапазон %s – %s ₽',
-                finscore_format_money((float) ($bg['value'] ?? 0)),
-                finscore_format_money((float) ($bg['low'] ?? 0)),
-                finscore_format_money((float) ($bg['high'] ?? 0))
-            ),
-        ];
-    }
-
-    if ($confidenceLabel !== '') {
-        $items[] = [
-            'label' => 'Данные',
-            'text' => rtrim($confidenceLabel, '.'),
-        ];
-    }
-
-    $items = array_slice($items, 0, 4);
     $summaryLines = [];
     foreach ($items as $item) {
         $summaryLines[] = $item['label'] . ': ' . $item['text'] . '.';
