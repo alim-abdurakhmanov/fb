@@ -467,6 +467,7 @@ function finscore_evaluate(array $bundle, array $options = []): array
 
     $summaries = finscore_build_summaries($resultDraft);
     $resultDraft['summary'] = $summaries['summary'];
+    $resultDraft['summary_items'] = $summaries['summary_items'];
     $resultDraft['summary_bank'] = $summaries['summary_bank'];
 
     return $resultDraft;
@@ -481,7 +482,7 @@ function finscore_format_money(float $value): string
  * Короткое резюме для UI и текст для копирования в банк.
  *
  * @param array<string,mixed> $result
- * @return array{summary:string,summary_bank:string}
+ * @return array{summary:string,summary_items:list<array{label:string,text:string}>,summary_bank:string}
  */
 function finscore_build_summaries(array $result): array
 {
@@ -518,43 +519,59 @@ function finscore_build_summaries(array $result): array
         }
     }
 
-    $sentences = [];
-    $sentences[] = sprintf(
-        '%s (ИНН %s): FinScore %d из 100, класс %s — %s.',
-        $name,
-        $inn !== '' ? $inn : '—',
-        $score,
-        $grade,
-        rtrim($gradeLabel, '.')
-    );
+    $items = [];
+    $items[] = [
+        'label' => 'Оценка',
+        'text' => sprintf('FinScore %d из 100 · класс %s — %s', $score, $grade, rtrim($gradeLabel, '.')),
+    ];
 
     if ($hardStops !== []) {
-        $sentences[] = 'Стоп-факторы: ' . implode('; ', array_slice($hardStops, 0, 3)) . '.';
+        $items[] = [
+            'label' => 'Стоп-факторы',
+            'text' => implode('; ', array_slice($hardStops, 0, 3)),
+        ];
     } elseif ($negatives !== []) {
-        $sentences[] = 'На что обратить внимание: ' . implode('; ', array_slice($negatives, 0, 3)) . '.';
+        $items[] = [
+            'label' => 'На что обратить внимание',
+            'text' => implode('; ', array_slice($negatives, 0, 3)),
+        ];
     } elseif ($positives !== []) {
-        $sentences[] = 'Сильные стороны: ' . implode('; ', array_slice($positives, 0, 3)) . '.';
+        $items[] = [
+            'label' => 'Сильные стороны',
+            'text' => implode('; ', array_slice($positives, 0, 3)),
+        ];
     }
 
     if ($individual) {
-        $sentences[] = 'Автолимит недоступен — нужен индивидуальный расчёт.';
+        $items[] = [
+            'label' => 'Лимит БГ',
+            'text' => 'Автолимит недоступен — нужен индивидуальный расчёт',
+        ];
     } else {
-        $bgValue = (float) ($bg['value'] ?? 0);
-        $bgLow = (float) ($bg['low'] ?? 0);
-        $bgHigh = (float) ($bg['high'] ?? 0);
-        $sentences[] = sprintf(
-            'Ориентир по БГ: %s ₽ (диапазон %s – %s ₽).',
-            finscore_format_money($bgValue),
-            finscore_format_money($bgLow),
-            finscore_format_money($bgHigh)
-        );
+        $items[] = [
+            'label' => 'Лимит БГ',
+            'text' => sprintf(
+                '%s ₽ · диапазон %s – %s ₽',
+                finscore_format_money((float) ($bg['value'] ?? 0)),
+                finscore_format_money((float) ($bg['low'] ?? 0)),
+                finscore_format_money((float) ($bg['high'] ?? 0))
+            ),
+        ];
     }
 
     if ($confidenceLabel !== '') {
-        $sentences[] = $confidenceLabel . '.';
+        $items[] = [
+            'label' => 'Данные',
+            'text' => rtrim($confidenceLabel, '.'),
+        ];
     }
 
-    $summary = implode(' ', array_slice($sentences, 0, 3));
+    $items = array_slice($items, 0, 4);
+    $summaryLines = [];
+    foreach ($items as $item) {
+        $summaryLines[] = $item['label'] . ': ' . $item['text'] . '.';
+    }
+    $summary = implode(' ', $summaryLines);
 
     // Расширенный текст для банка / мессенджера
     $bankLines = [];
@@ -616,6 +633,7 @@ function finscore_build_summaries(array $result): array
 
     return [
         'summary' => $summary,
+        'summary_items' => $items,
         'summary_bank' => implode("\n", $bankLines),
     ];
 }

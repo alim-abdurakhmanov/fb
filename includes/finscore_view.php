@@ -146,12 +146,27 @@ function finscore_render_header_html(?array $finscore): string
 
     $summary = trim((string) ($finscore['summary'] ?? ''));
     $summaryBank = trim((string) ($finscore['summary_bank'] ?? $summary));
-    if ($summary !== '') {
+    $summaryItems = is_array($finscore['summary_items'] ?? null) ? $finscore['summary_items'] : [];
+    if ($summary !== '' || $summaryItems !== []) {
         $html .= '<div class="fs-summary">';
-        $html .= '<div class="fs-summary-head"><strong>Почему так</strong>';
+        $html .= '<div class="fs-summary-head"><strong>Резюме</strong>';
         $html .= '<button type="button" class="btn btn-sm btn-outline-secondary" data-fs-copy-summary>'
             . '<i class="bi bi-clipboard me-1"></i>Скопировать резюме</button></div>';
-        $html .= '<p class="fs-summary-text mb-0">' . finscore_h($summary) . '</p>';
+        if ($summaryItems !== []) {
+            $html .= '<div class="fs-summary-items">';
+            foreach ($summaryItems as $item) {
+                if (!is_array($item)) {
+                    continue;
+                }
+                $html .= '<div class="fs-summary-item">';
+                $html .= '<div class="fs-summary-label">' . finscore_h((string) ($item['label'] ?? '')) . '</div>';
+                $html .= '<div class="fs-summary-value">' . finscore_h((string) ($item['text'] ?? '')) . '</div>';
+                $html .= '</div>';
+            }
+            $html .= '</div>';
+        } else {
+            $html .= '<p class="fs-summary-text mb-0">' . finscore_h($summary) . '</p>';
+        }
         $html .= '<textarea class="visually-hidden" data-fs-summary-bank readonly>'
             . finscore_h($summaryBank) . '</textarea>';
         $html .= '</div>';
