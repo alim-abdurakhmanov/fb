@@ -496,7 +496,6 @@ function finscore_build_summaries(array $result): array
     $finance = is_array($result['finance'] ?? null) ? $result['finance'] : [];
     $metrics = is_array($result['metrics'] ?? null) ? $result['metrics'] : [];
     $bg = is_array($result['limits']['bg'] ?? null) ? $result['limits']['bg'] : [];
-    $credit = is_array($result['limits']['credit'] ?? null) ? $result['limits']['credit'] : [];
     $confidenceLabel = (string) ($result['confidence']['label'] ?? '');
 
     $negatives = [];
