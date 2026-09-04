@@ -152,6 +152,19 @@ function finscore_render_header_html(?array $finscore): string
     );
     $html .= '</div>';
 
+    $summary = trim((string) ($finscore['summary'] ?? ''));
+    $summaryBank = trim((string) ($finscore['summary_bank'] ?? $summary));
+    if ($summary !== '') {
+        $html .= '<div class="fs-summary">';
+        $html .= '<div class="fs-summary-head"><strong>Почему так</strong>';
+        $html .= '<button type="button" class="btn btn-sm btn-outline-secondary" data-fs-copy-summary>'
+            . '<i class="bi bi-clipboard me-1"></i>Скопировать резюме</button></div>';
+        $html .= '<p class="fs-summary-text mb-0">' . finscore_h($summary) . '</p>';
+        $html .= '<textarea class="visually-hidden" data-fs-summary-bank readonly>'
+            . finscore_h($summaryBank) . '</textarea>';
+        $html .= '</div>';
+    }
+
     $html .= '<div class="fs-kpis">';
     $html .= '<div class="fs-kpi"><div class="label">Выручка' . (!empty($finance['year']) ? ' ' . (int) $finance['year'] : '') . '</div>';
     $html .= '<div class="value">' . finscore_money_html($finance['revenue'] ?? 0) . ' ₽</div></div>';

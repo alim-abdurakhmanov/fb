@@ -414,7 +414,7 @@ function finscore_evaluate(array $bundle, array $options = []): array
     });
     $factors = array_slice($factors, 0, 8);
 
-    return [
+    $resultDraft = [
         'inn' => (string) ($bundle['inn'] ?? ''),
         'company_name' => $name !== '' ? $name : 'Компания',
         'product_type' => $productType,
@@ -464,11 +464,167 @@ function finscore_evaluate(array $bundle, array $options = []): array
             ? 'Автолимит недоступен — запросите индивидуальный расчёт'
             : ($gradeInfo['label'] ?? 'Нужна дополнительная проверка'),
     ];
+
+    $summaries = finscore_build_summaries($resultDraft);
+    $resultDraft['summary'] = $summaries['summary'];
+    $resultDraft['summary_bank'] = $summaries['summary_bank'];
+
+    return $resultDraft;
 }
 
 function finscore_format_money(float $value): string
 {
     return number_format($value, 0, '.', ' ');
+}
+
+/**
+ * Короткое резюме для UI и текст для копирования в банк.
+ *
+ * @param array<string,mixed> $result
+ * @return array{summary:string,summary_bank:string}
+ */
+function finscore_build_summaries(array $result): array
+{
+    $name = (string) ($result['company_name'] ?? 'Компания');
+    $inn = (string) ($result['inn'] ?? '');
+    $score = (int) ($result['score'] ?? 0);
+    $grade = (string) ($result['grade'] ?? '—');
+    $gradeLabel = (string) ($result['grade_label'] ?? '');
+    $individual = !empty($result['individual_only']);
+    $hardStops = is_array($result['hard_stops'] ?? null) ? $result['hard_stops'] : [];
+    $factors = is_array($result['factors'] ?? null) ? $result['factors'] : [];
+    $finance = is_array($result['finance'] ?? null) ? $result['finance'] : [];
+    $metrics = is_array($result['metrics'] ?? null) ? $result['metrics'] : [];
+    $bg = is_array($result['limits']['bg'] ?? null) ? $result['limits']['bg'] : [];
+    $credit = is_array($result['limits']['credit'] ?? null) ? $result['limits']['credit'] : [];
+    $confidenceLabel = (string) ($result['confidence']['label'] ?? '');
+
+    $negatives = [];
+    $positives = [];
+    foreach ($factors as $factor) {
+        if (!is_array($factor)) {
+            continue;
+        }
+        $label = trim((string) ($factor['label'] ?? ''));
+        $detail = trim((string) ($factor['detail'] ?? ''));
+        if ($label === '') {
+            continue;
+        }
+        $piece = $detail !== '' ? $label . ' (' . $detail . ')' : $label;
+        $tone = (string) ($factor['tone'] ?? '');
+        if ($tone === 'bad' || $tone === 'warn') {
+            $negatives[] = $piece;
+        } elseif ($tone === 'good') {
+            $positives[] = $piece;
+        }
+    }
+
+    $sentences = [];
+    $sentences[] = sprintf(
+        '%s (ИНН %s): FinScore %d из 100, класс %s — %s.',
+        $name,
+        $inn !== '' ? $inn : '—',
+        $score,
+        $grade,
+        rtrim($gradeLabel, '.')
+    );
+
+    if ($hardStops !== []) {
+        $sentences[] = 'Стоп-факторы: ' . implode('; ', array_slice($hardStops, 0, 3)) . '.';
+    } elseif ($negatives !== []) {
+        $sentences[] = 'На что обратить внимание: ' . implode('; ', array_slice($negatives, 0, 3)) . '.';
+    } elseif ($positives !== []) {
+        $sentences[] = 'Сильные стороны: ' . implode('; ', array_slice($positives, 0, 3)) . '.';
+    }
+
+    if ($individual) {
+        $sentences[] = 'Автолимит недоступен — нужен индивидуальный расчёт.';
+    } else {
+        $bgValue = (float) ($bg['value'] ?? 0);
+        $bgLow = (float) ($bg['low'] ?? 0);
+        $bgHigh = (float) ($bg['high'] ?? 0);
+        $sentences[] = sprintf(
+            'Ориентир по БГ: %s ₽ (диапазон %s – %s ₽).',
+            finscore_format_money($bgValue),
+            finscore_format_money($bgLow),
+            finscore_format_money($bgHigh)
+        );
+    }
+
+    if ($confidenceLabel !== '') {
+        $sentences[] = $confidenceLabel . '.';
+    }
+
+    $summary = implode(' ', array_slice($sentences, 0, 3));
+
+    // Расширенный текст для банка / мессенджера
+    $bankLines = [];
+    $bankLines[] = 'FinBuild · краткое резюме по компании';
+    $bankLines[] = $name . ($inn !== '' ? ' · ИНН ' . $inn : '');
+    $bankLines[] = sprintf('FinScore: %d/100 · класс %s', $score, $grade);
+    $bankLines[] = 'Вывод: ' . $gradeLabel;
+
+    $rev = (float) ($finance['revenue'] ?? 0);
+    $profit = (float) ($finance['profit'] ?? 0);
+    $year = (int) ($finance['year'] ?? 0);
+    if ($rev > 0 || $profit != 0.0) {
+        $bankLines[] = sprintf(
+            'Финансы%s: выручка %s ₽, прибыль %s ₽',
+            $year > 0 ? ' ' . $year : '',
+            finscore_format_money($rev),
+            finscore_format_money($profit)
+        );
+    }
+
+    $age = $metrics['company_age'] ?? null;
+    $tax = (float) ($metrics['tax_debt'] ?? 0);
+    $fssp = (float) ($metrics['fssp_debt'] ?? 0);
+    $lawCount = (int) ($metrics['law_count'] ?? 0);
+    $bankLines[] = sprintf(
+        'Возраст: %s · налоги: %s ₽ · ФССП: %s ₽ · арбитраж: %d дел',
+        $age !== null ? ((int) $age . ' лет') : 'н/д',
+        finscore_format_money($tax),
+        finscore_format_money($fssp),
+        $lawCount
+    );
+
+    if ($hardStops !== []) {
+        $bankLines[] = 'Стоп-факторы: ' . implode('; ', $hardStops);
+    }
+    if ($negatives !== []) {
+        $bankLines[] = 'Риски: ' . implode('; ', array_slice($negatives, 0, 5));
+    }
+    if ($positives !== []) {
+        $bankLines[] = 'Плюсы: ' . implode('; ', array_slice($positives, 0, 4));
+    }
+
+    if ($individual) {
+        $bankLines[] = 'Лимит: только индивидуально';
+    } else {
+        $bankLines[] = sprintf(
+            'Ориентир БГ: %s ₽ (%s – %s)',
+            finscore_format_money((float) ($bg['value'] ?? 0)),
+            finscore_format_money((float) ($bg['low'] ?? 0)),
+            finscore_format_money((float) ($bg['high'] ?? 0))
+        );
+        $bankLines[] = sprintf(
+            'Ориентир кредит: %s ₽ (%s – %s)',
+            finscore_format_money((float) ($credit['value'] ?? 0)),
+            finscore_format_money((float) ($credit['low'] ?? 0)),
+            finscore_format_money((float) ($credit['high'] ?? 0))
+        );
+    }
+
+    if ($confidenceLabel !== '') {
+        $bankLines[] = 'Данные: ' . $confidenceLabel;
+    }
+
+    $bankLines[] = 'Сформировано автоматически по открытым данным (Checko). Требует проверки менеджером.';
+
+    return [
+        'summary' => $summary,
+        'summary_bank' => implode("\n", $bankLines),
+    ];
 }
 
 /**

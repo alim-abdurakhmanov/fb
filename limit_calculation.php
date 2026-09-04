@@ -634,6 +634,29 @@ require_once 'header.php';
     color: #1b2838;
 }
 
+.fs-summary {
+    margin-top: 1rem;
+    padding: 0.9rem 1rem;
+    border-radius: 12px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+}
+
+.fs-summary-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-bottom: 0.45rem;
+    flex-wrap: wrap;
+}
+
+.fs-summary-text {
+    color: #334155;
+    font-size: 0.95rem;
+    line-height: 1.45;
+}
+
 @media (max-width: 768px) {
     .finscore-hero {
         grid-template-columns: 1fr;
@@ -908,6 +931,19 @@ require_once 'header.php';
                         </div>
                     </div>
 
+                    <?php if ($fs && !empty($fs['summary'])): ?>
+                    <div class="fs-summary text-start mb-3">
+                        <div class="fs-summary-head">
+                            <strong>Почему так</strong>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" data-fs-copy-summary>
+                                <i class="bi bi-clipboard me-1"></i>Скопировать резюме
+                            </button>
+                        </div>
+                        <p class="fs-summary-text mb-0"><?= htmlspecialchars((string) $fs['summary']) ?></p>
+                        <textarea class="visually-hidden" data-fs-summary-bank readonly><?= htmlspecialchars((string) ($fs['summary_bank'] ?? $fs['summary'])) ?></textarea>
+                    </div>
+                    <?php endif; ?>
+
                     <?php if ($fs): ?>
                     <div class="finscore-kpis">
                         <div class="finscore-kpi">
@@ -1079,6 +1115,27 @@ document.addEventListener('DOMContentLoaded', function() {
             });
             if (!wasActive) {
                 btn.classList.add('is-active');
+            }
+        });
+    });
+
+    document.querySelectorAll('[data-fs-copy-summary]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            const box = btn.closest('.fs-summary');
+            const area = box ? box.querySelector('[data-fs-summary-bank]') : null;
+            const text = area ? area.value : '';
+            if (!text) return;
+            const original = btn.innerHTML;
+            function done(ok) {
+                btn.innerHTML = ok
+                    ? '<i class="bi bi-check2 me-1"></i>Скопировано'
+                    : original;
+                if (ok) setTimeout(function () { btn.innerHTML = original; }, 1800);
+            }
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(function () { done(true); }).catch(function () { done(false); });
+            } else {
+                done(false);
             }
         });
     });
