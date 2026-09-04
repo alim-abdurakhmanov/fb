@@ -83,7 +83,6 @@
         const color = finscore.grade_color || '#2f6fed';
         const companyName = finscore.company_name || 'Компания';
         const bg = (finscore.limits && finscore.limits.bg) || { value: 0, low: 0, high: 0 };
-        const credit = (finscore.limits && finscore.limits.credit) || { value: 0, low: 0, high: 0 };
         const individual = !!finscore.individual_only || !(bg.value > 0);
         const factors = Array.isArray(finscore.factors) ? finscore.factors : [];
         const hardStops = Array.isArray(finscore.hard_stops) ? finscore.hard_stops : [];
@@ -123,10 +122,43 @@
                 </div>`;
         }
 
+        function renderSummaryBlock(finscore) {
+            const items = Array.isArray(finscore.summary_items) ? finscore.summary_items : [];
+            const summary = finscore.summary || '';
+            const bank = finscore.summary_bank || summary;
+            if (!summary && !items.length) {
+                return '';
+            }
+
+            let body = '';
+            if (items.length) {
+                body = '<div class="fs-summary-items">' + items.map(function (item) {
+                    return `
+                        <div class="fs-summary-item">
+                            <div class="fs-summary-label">${escapeHtml(item.label || '')}</div>
+                            <div class="fs-summary-value">${escapeHtml(item.text || '')}</div>
+                        </div>`;
+                }).join('') + '</div>';
+            } else {
+                body = `<p class="fs-summary-text mb-0">${escapeHtml(summary)}</p>`;
+            }
+
+            return `
+            <div class="fs-summary">
+                <div class="fs-summary-head">
+                    <strong>Резюме</strong>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" data-fs-copy-summary>
+                        <i class="bi bi-clipboard me-1"></i>Скопировать резюме
+                    </button>
+                </div>
+                ${body}
+                <textarea class="visually-hidden" data-fs-summary-bank readonly>${escapeHtml(bank)}</textarea>
+            </div>`;
+        }
+
         const limitsHtml = `
             <div class="fs-limits">
                 ${limitCard('Ориентир по БГ', bg.value, bg.low, bg.high, individual)}
-                ${limitCard('Ориентир по кредиту', credit.value, credit.low, credit.high, individual || !(credit.value > 0))}
             </div>`;
 
         const chartCanvas = series.length > 1
@@ -164,17 +196,7 @@
 
             ${limitsHtml}
 
-            ${finscore.summary ? `
-            <div class="fs-summary">
-                <div class="fs-summary-head">
-                    <strong>Почему так</strong>
-                    <button type="button" class="btn btn-sm btn-outline-secondary" data-fs-copy-summary>
-                        <i class="bi bi-clipboard me-1"></i>Скопировать резюме
-                    </button>
-                </div>
-                <p class="fs-summary-text mb-0">${escapeHtml(finscore.summary)}</p>
-                <textarea class="visually-hidden" data-fs-summary-bank readonly>${escapeHtml(finscore.summary_bank || finscore.summary)}</textarea>
-            </div>` : ''}
+            ${renderSummaryBlock(finscore)}
 
             <div class="fs-kpis">
                 <div class="fs-kpi">

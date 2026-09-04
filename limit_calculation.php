@@ -636,9 +636,9 @@ require_once 'header.php';
 
 .fs-summary {
     margin-top: 1rem;
-    padding: 0.9rem 1rem;
-    border-radius: 12px;
-    background: #f8fafc;
+    padding: 1rem 1.1rem;
+    border-radius: 14px;
+    background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
     border: 1px solid #e2e8f0;
 }
 
@@ -647,7 +647,7 @@ require_once 'header.php';
     align-items: center;
     justify-content: space-between;
     gap: 0.75rem;
-    margin-bottom: 0.45rem;
+    margin-bottom: 0.75rem;
     flex-wrap: wrap;
 }
 
@@ -655,6 +655,44 @@ require_once 'header.php';
     color: #334155;
     font-size: 0.95rem;
     line-height: 1.45;
+}
+
+.fs-summary-items {
+    display: grid;
+    gap: 0.65rem;
+}
+
+.fs-summary-item {
+    display: grid;
+    grid-template-columns: 160px 1fr;
+    gap: 0.75rem;
+    align-items: start;
+    padding: 0.65rem 0.75rem;
+    border-radius: 10px;
+    background: #f8fafc;
+    border: 1px solid #eef2f7;
+}
+
+.fs-summary-label {
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #64748b;
+}
+
+.fs-summary-value {
+    color: #1e293b;
+    font-size: 0.95rem;
+    line-height: 1.4;
+    font-weight: 500;
+}
+
+@media (max-width: 768px) {
+    .fs-summary-item {
+        grid-template-columns: 1fr;
+        gap: 0.25rem;
+    }
 }
 
 @media (max-width: 768px) {
@@ -931,15 +969,27 @@ require_once 'header.php';
                         </div>
                     </div>
 
-                    <?php if ($fs && !empty($fs['summary'])): ?>
+                    <?php if ($fs && (!empty($fs['summary']) || !empty($fs['summary_items']))): ?>
                     <div class="fs-summary text-start mb-3">
                         <div class="fs-summary-head">
-                            <strong>Почему так</strong>
+                            <strong>Резюме</strong>
                             <button type="button" class="btn btn-sm btn-outline-secondary" data-fs-copy-summary>
                                 <i class="bi bi-clipboard me-1"></i>Скопировать резюме
                             </button>
                         </div>
-                        <p class="fs-summary-text mb-0"><?= htmlspecialchars((string) $fs['summary']) ?></p>
+                        <?php if (!empty($fs['summary_items']) && is_array($fs['summary_items'])): ?>
+                            <div class="fs-summary-items">
+                                <?php foreach ($fs['summary_items'] as $item): ?>
+                                    <?php if (!is_array($item)) { continue; } ?>
+                                    <div class="fs-summary-item">
+                                        <div class="fs-summary-label"><?= htmlspecialchars((string) ($item['label'] ?? '')) ?></div>
+                                        <div class="fs-summary-value"><?= htmlspecialchars((string) ($item['text'] ?? '')) ?></div>
+                                    </div>
+                                <?php endforeach; ?>
+                            </div>
+                        <?php else: ?>
+                            <p class="fs-summary-text mb-0"><?= htmlspecialchars((string) $fs['summary']) ?></p>
+                        <?php endif; ?>
                         <textarea class="visually-hidden" data-fs-summary-bank readonly><?= htmlspecialchars((string) ($fs['summary_bank'] ?? $fs['summary'])) ?></textarea>
                     </div>
                     <?php endif; ?>
