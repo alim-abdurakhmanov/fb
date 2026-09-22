@@ -460,7 +460,6 @@
                         <div class="bm-checks">
                             <label><input type="checkbox" data-bm-judgment="force_not_good" ${j.force_not_good ? 'checked' : ''}> Обстоятельства 590-П, исключающие «Хорошее»</label>
                         </div>
-                        <div class="hint mt-2">Отрицательный СК учитывается автоматически из поля «Собственные средства». Отметка 590-П ограничивает и расчётный, и установленный рейтинг (не выше B- / «Среднее»).</div>
                         <div class="bm-history mt-3">${hist ? ('История: ' + esc(hist)) : 'История версий появится после сохранений'}</div>
                     </div>
                 </div>
