@@ -314,28 +314,27 @@
                 const items = stopByGroup[groupId];
                 if (!items || !items.length) return '';
                 const title = stopGroupLabels[groupId] || groupId;
-                const isSingle = items.length === 1;
+                const isMulti = items.length > 1;
                 const cards = items.map(function (sf) {
                     const row = (state.stop_factors || []).find(function (x) { return x.code === sf.code; }) || {};
                     const on = !!row.triggered;
                     const cond = !sf.mandatory;
                     const id = 'bm-stop-' + String(sf.code).replace(/[^a-zA-Z0-9_-]/g, '_');
-                    const label = isSingle ? title : sf.label;
                     return `
                     <div class="bm-stop-item ${on ? 'is-on' : ''} ${cond ? 'is-conditional' : ''}">
                         <label class="bm-stop-head" for="${esc(id)}">
                             <input id="${esc(id)}" type="checkbox" data-bm-stop="${esc(sf.code)}" ${on ? 'checked' : ''}>
-                            <span class="title">${esc(label)}</span>
+                            <span class="title">${esc(sf.label)}</span>
                         </label>
                         <textarea data-bm-stop-comment="${esc(sf.code)}" rows="2" placeholder="Комментарий">${esc(row.comment || '')}</textarea>
                     </div>`;
                 }).join('');
-                if (isSingle) {
-                    return `<div class="bm-stop-group bm-stop-group-single"><div class="bm-stop-grid">${cards}</div></div>`;
-                }
+                const heading = isMulti
+                    ? `<h6 class="bm-stop-group-title">${esc(title)}</h6>`
+                    : '';
                 return `
-                <div class="bm-stop-group">
-                    <h6 class="bm-stop-group-title">${esc(title)}</h6>
+                <div class="bm-stop-group${isMulti ? '' : ' bm-stop-group-single'}">
+                    ${heading}
                     <div class="bm-stop-grid">${cards}</div>
                 </div>`;
             }).join('');

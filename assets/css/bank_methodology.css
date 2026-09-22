@@ -221,20 +221,28 @@
 .bm-stop-groups {
     display: flex;
     flex-direction: column;
-    gap: 1.15rem;
+    gap: 0;
 }
 
-.bm-stop-group-single {
-    /* одиночные пункты методики (3, 4, 6…15) — без подзаголовка */
+.bm-stop-group {
+    padding: 1rem 0;
+    border-top: 1px solid #d7dee7;
+}
+
+.bm-stop-group:first-child {
+    border-top: none;
+    padding-top: 0;
+}
+
+.bm-stop-group:last-child {
+    padding-bottom: 0;
 }
 
 .bm-stop-group-title {
-    margin: 0 0 0.55rem;
-    padding-bottom: 0.35rem;
-    border-bottom: 1px solid #e8eef5;
-    font-size: 0.8rem;
+    margin: 0 0 0.65rem;
+    font-size: 0.92rem;
     font-weight: 700;
-    letter-spacing: 0.03em;
+    letter-spacing: 0;
     text-transform: none;
     color: var(--bm-ink);
 }
