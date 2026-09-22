@@ -126,12 +126,10 @@
             const comment = root.querySelector('[data-bm-judgment="comment"]');
             const reason = root.querySelector('[data-bm-judgment="upgrade_downgrade_reason"]');
             const force = root.querySelector('[data-bm-judgment="force_not_good"]');
-            const negEq = root.querySelector('[data-bm-judgment="negative_equity"]');
             const est = root.querySelector('[data-bm-judgment="established_rating"]');
             next.judgment.comment = comment ? comment.value : '';
             next.judgment.upgrade_downgrade_reason = reason ? reason.value : '';
             next.judgment.force_not_good = !!(force && force.checked);
-            next.judgment.negative_equity = !!(negEq && negEq.checked);
             next.judgment.established_rating = est ? est.value : '';
 
             state = next;
@@ -460,9 +458,9 @@
                             <textarea data-bm-judgment="upgrade_downgrade_reason">${esc(j.upgrade_downgrade_reason || '')}</textarea>
                         </div>
                         <div class="bm-checks">
-                            <label><input type="checkbox" data-bm-judgment="negative_equity" ${j.negative_equity ? 'checked' : ''}> Отрицательный СК</label>
-                            <label><input type="checkbox" data-bm-judgment="force_not_good" ${j.force_not_good ? 'checked' : ''}> Обстоятельства, исключающие «Хорошее»</label>
+                            <label><input type="checkbox" data-bm-judgment="force_not_good" ${j.force_not_good ? 'checked' : ''}> Обстоятельства 590-П, исключающие «Хорошее»</label>
                         </div>
+                        <div class="hint mt-2">Отрицательный СК учитывается автоматически из поля «Собственные средства». Отметка 590-П ограничивает и расчётный, и установленный рейтинг (не выше B- / «Среднее»).</div>
                         <div class="bm-history mt-3">${hist ? ('История: ' + esc(hist)) : 'История версий появится после сохранений'}</div>
                     </div>
                 </div>

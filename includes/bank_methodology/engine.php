@@ -68,8 +68,7 @@ function bank_methodology_empty_state(): array
             'comment' => '',
             'upgrade_downgrade_reason' => '',
             'established_rating' => '', // пусто = расчётный; иначе буква из шкалы
-            'force_not_good' => false,
-            'negative_equity' => false,
+            'force_not_good' => false, // обстоятельства 590-П / п. 6.6 методики
         ],
     ];
 }
@@ -145,18 +144,19 @@ function bank_methodology_evaluate(array $state): array
     $calculatedRating = $ratingInfo['rating'];
     $calculatedPosition = $position;
 
+    // Отрицательный СК — только из поля финансов (п. 6.9 методики), без ручной галочки.
     $equity = $state['finance']['inputs']['equity'] ?? null;
-    $negativeEquity = !empty($state['judgment']['negative_equity'])
-        || ($equity !== null && $equity !== '' && (float) $equity < 0);
+    $negativeEquity = ($equity !== null && $equity !== '' && (float) $equity < 0);
     if (!$incomplete && $negativeEquity && $position === 'good') {
         $ratingInfo = bank_methodology_cap_rating_to_average($ratingInfo, $rules);
         $position = 'average';
         $warnings[] = 'Отрицательный собственный капитал: положение не может быть «Хорошим» (максимум «Среднее», рейтинг не выше B-).';
     }
+    // Обстоятельства 590-П (п. 6.6) — режут и расчётный, и установленный рейтинг.
     if (!$incomplete && !empty($state['judgment']['force_not_good']) && $position === 'good') {
         $ratingInfo = bank_methodology_cap_rating_to_average($ratingInfo, $rules);
         $position = 'average';
-        $warnings[] = 'Отмечены обстоятельства, исключающие оценку «Хорошее» (по методике / 590-П).';
+        $warnings[] = 'Отмечены обстоятельства 590-П: положение не может быть «Хорошим» (максимум «Среднее», рейтинг не выше B-).';
     }
 
     // Установленный рейтинг (профсуждение) — поверх расчётного
@@ -171,6 +171,7 @@ function bank_methodology_evaluate(array $state): array
             }
             if (!empty($state['judgment']['force_not_good']) && $mapped['position'] === 'good') {
                 $mapped = bank_methodology_cap_rating_to_average($mapped, $rules);
+                $warnings[] = 'Установленный рейтинг ограничен из‑за обстоятельств 590-П (не выше B- / «Среднее»).';
             }
             $ratingInfo = $mapped;
             $position = $mapped['position'];
@@ -275,6 +276,8 @@ function bank_methodology_normalize_state(array $state): array
                 $out['judgment'][$k] = $state['judgment'][$k];
             }
         }
+        // Устаревшая ручная галочка «Отрицательный СК» больше не хранится / не влияет.
+        unset($out['judgment']['negative_equity']);
     }
 
     return $out;
