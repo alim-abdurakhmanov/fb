@@ -313,7 +313,7 @@
                     <div><label>Выручка за текущий период, руб</label><input data-bm-fin="revenue" inputmode="decimal" value="${esc(numOrEmpty(inputs.revenue))}"></div>
                     <div><label>Выручка за последний завершённый год, руб</label><input data-bm-fin="revenue_last_year" inputmode="decimal" value="${esc(numOrEmpty(inputs.revenue_last_year))}"></div>
                     <div><label>Чистая прибыль (текущий период), руб</label><input data-bm-fin="net_profit" inputmode="decimal" value="${esc(numOrEmpty(inputs.net_profit))}"></div>
-                    <div><label>Чистая прибыль предыдущего года, руб</label><input data-bm-fin="prior_year_net_profit" inputmode="decimal" value="${esc(numOrEmpty(inputs.prior_year_net_profit))}"></div>
+                    <div><label>Чистая прибыль за последний завершённый год, руб</label><input data-bm-fin="prior_year_net_profit" inputmode="decimal" value="${esc(numOrEmpty(inputs.prior_year_net_profit))}"></div>
                     <div><label>Доходы от участия в других организациях, руб</label><input data-bm-fin="income_from_participation" inputmode="decimal" value="${esc(numOrEmpty(inputs.income_from_participation))}"></div>
                     <div><label>Проценты к получению, руб</label><input data-bm-fin="interest_receivable" inputmode="decimal" value="${esc(numOrEmpty(inputs.interest_receivable))}"></div>
                     <div><label>Прочие доходы, руб</label><input data-bm-fin="other_income" inputmode="decimal" value="${esc(numOrEmpty(inputs.other_income))}"></div>
