@@ -297,8 +297,9 @@
 .bm-stop-item .title {
     font-weight: 600;
     font-size: 0.88rem;
-    line-height: 1.35;
+    line-height: 1.4;
     color: var(--bm-ink);
+    overflow-wrap: anywhere;
 }
 
 .bm-stop-item textarea {
