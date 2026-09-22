@@ -271,15 +271,15 @@
                     <div><label>Выручка</label><input data-bm-fin="revenue" inputmode="decimal" placeholder="пусто или 0 — нет выручки" value="${esc(numOrEmpty(inputs.revenue))}"></div>
                     <div><label>Чистая прибыль</label><input data-bm-fin="net_profit" inputmode="decimal" value="${esc(numOrEmpty(inputs.net_profit))}"></div>
                     <div><label>Собственные средства (СК)</label><input data-bm-fin="equity" inputmode="decimal" placeholder="пусто или 0 — нет СК" value="${esc(numOrEmpty(inputs.equity))}"></div>
-                    <div><label>Текущие активы (стр.6)</label><input data-bm-fin="current_assets" inputmode="decimal" value="${esc(numOrEmpty(inputs.current_assets))}"></div>
+                    <div><label>Текущие активы</label><input data-bm-fin="current_assets" inputmode="decimal" value="${esc(numOrEmpty(inputs.current_assets))}"></div>
                     <div><label>Текущие обязательства</label><input data-bm-fin="current_liabilities" inputmode="decimal" placeholder="пусто или 0 — нет обязательств" value="${esc(numOrEmpty(inputs.current_liabilities))}"></div>
                     <div><label>Долгосрочные обязательства</label><input data-bm-fin="long_term_liabilities" inputmode="decimal" value="${esc(numOrEmpty(inputs.long_term_liabilities))}"></div>
                     <div><label>Валюта баланса</label><input data-bm-fin="balance_total" inputmode="decimal" value="${esc(numOrEmpty(inputs.balance_total))}"></div>
-                    <div><label>Краткосрочные займы (стр.14 / 1510)</label><input data-bm-fin="short_term_borrowings" inputmode="decimal" value="${esc(numOrEmpty(inputs.short_term_borrowings))}"></div>
-                    <div><label>Кредиторская задолженность (стр.15 / 1520)</label><input data-bm-fin="accounts_payable" inputmode="decimal" value="${esc(numOrEmpty(inputs.accounts_payable))}"></div>
-                    <div><label>Прочие кр. обязательства (стр.19 / 1540+1550)</label><input data-bm-fin="other_short_liabilities" inputmode="decimal" value="${esc(numOrEmpty(inputs.other_short_liabilities))}"></div>
-                    <div><label>Долгосрочные займы (стр.24 / 1410)</label><input data-bm-fin="long_term_borrowings" inputmode="decimal" value="${esc(numOrEmpty(inputs.long_term_borrowings))}"></div>
-                    <div><label>Долг / выручка (коэф., вручную)</label><input data-bm-fin="debt_to_revenue" inputmode="decimal" placeholder="или по формуле из стр.14–24" value="${esc(numOrEmpty(inputs.debt_to_revenue))}"></div>
+                    <div><label>Краткосрочные займы</label><input data-bm-fin="short_term_borrowings" inputmode="decimal" value="${esc(numOrEmpty(inputs.short_term_borrowings))}"></div>
+                    <div><label>Кредиторская задолженность</label><input data-bm-fin="accounts_payable" inputmode="decimal" value="${esc(numOrEmpty(inputs.accounts_payable))}"></div>
+                    <div><label>Прочие краткосрочные обязательства</label><input data-bm-fin="other_short_liabilities" inputmode="decimal" value="${esc(numOrEmpty(inputs.other_short_liabilities))}"></div>
+                    <div><label>Долгосрочные займы</label><input data-bm-fin="long_term_borrowings" inputmode="decimal" value="${esc(numOrEmpty(inputs.long_term_borrowings))}"></div>
+                    <div><label>Долг / выручка</label><input data-bm-fin="debt_to_revenue" inputmode="decimal" placeholder="пусто — посчитаем из полей выше" value="${esc(numOrEmpty(inputs.debt_to_revenue))}"></div>
                     <div><label>Отрасль</label>
                         <select data-bm-fin="industry">
                             <option value="default" ${inputs.industry === 'default' || !inputs.industry ? 'selected' : ''}>Обычная</option>
@@ -292,6 +292,13 @@
                         <label><input type="checkbox" data-bm-fin-flag="roe_explained_zero" ${inputs.roe_explained_zero ? 'checked' : ''}> ROE 0% с объяснением</label>
                         <label><input type="checkbox" data-bm-fin-flag="q1_seasonal_loss_explained" ${inputs.q1_seasonal_loss_explained ? 'checked' : ''}> Убыток 1 кв. (сезонность)</label>
                     </div>
+                    <p class="small text-muted mb-0" style="grid-column:1/-1">
+                        Долг / выручка: если поле пустое, считаем так —
+                        сначала разница = кредиторская + прочие краткосрочные − текущие активы;
+                        если разница ≤ 0, то (краткосрочные займы + долгосрочные займы) / выручка;
+                        если разница &gt; 0, то (краткосрочные займы + долгосрочные займы + разница) / выручка.
+                        Можно вместо этого ввести готовый коэффициент вручную.
+                    </p>
                 </div>`;
 
             const finMetrics = rules.finance_metrics || {};
@@ -306,7 +313,7 @@
                         <div class="hint" data-bm-fin-note="${esc(id)}"></div>
                     </div>
                     <div>
-                        <label>Ручной балл (override)</label>
+                        <label>Ручной балл</label>
                         <input data-bm-fin-score="${esc(id)}" inputmode="decimal" placeholder="авто" value="${esc(numOrEmpty(ov))}">
                     </div>
                     <div>
@@ -336,7 +343,7 @@
                         </div>
                     </div>
                     <div>
-                        <label>Ручной балл (override)</label>
+                        <label>Ручной балл</label>
                         <input data-bm-biz-score="${esc(id)}" inputmode="decimal" placeholder="авто" value="${esc(numOrEmpty(row.score_override))}">
                     </div>
                     <div>

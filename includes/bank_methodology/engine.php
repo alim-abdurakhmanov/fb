@@ -464,14 +464,15 @@ function bank_methodology_compute_ratios(array $inputs): array
     $out['financial_stability'] = ['value' => $fsValue, 'score' => $fsScore, 'note' => $fsNote];
 
     // Долг / выручка
-    // Методика: РАЗНИЦА = стр.15 + стр.19 − стр.6;
-    // если РАЗНИЦА ≤ 0: (стр.14 + стр.24) / выручка;
-    // если РАЗНИЦА > 0: (стр.14 + стр.24 + РАЗНИЦА) / выручка.
+    // Разница = кредиторка + прочие краткосрочные − текущие активы;
+    // если разница ≤ 0: (краткосрочные займы + долгосрочные займы) / выручка;
+    // если разница > 0: (краткосрочные займы + долгосрочные займы + разница) / выручка.
+    // Либо коэффициент задан вручную в debt_to_revenue.
     $debtMetric = $rules['finance_metrics']['debt_to_revenue'];
-    $stb = bank_methodology_num($inputs['short_term_borrowings'] ?? null); // стр.14 = 1510
-    $ap = bank_methodology_num($inputs['accounts_payable'] ?? null); // стр.15 = 1520
-    $osl = bank_methodology_num($inputs['other_short_liabilities'] ?? null); // стр.19 = 1540+1550
-    $ltb = bank_methodology_num($inputs['long_term_borrowings'] ?? null); // стр.24 = 1410
+    $stb = bank_methodology_num($inputs['short_term_borrowings'] ?? null);
+    $ap = bank_methodology_num($inputs['accounts_payable'] ?? null);
+    $osl = bank_methodology_num($inputs['other_short_liabilities'] ?? null);
+    $ltb = bank_methodology_num($inputs['long_term_borrowings'] ?? null);
     $debtValue = $debtRatioManual;
     $debtScore = null;
     $debtNote = '';
@@ -486,13 +487,13 @@ function bank_methodology_compute_ratios(array $inputs): array
         $debtNote = 'Отсутствие выручки';
     } elseif ($debtValue === null && $revenue !== null && abs($revenue) > 0.00001
         && $stb !== null && $ltb !== null && $ap !== null && $osl !== null && $ca !== null) {
-        $diff = $ap + $osl - $ca; // РАЗНИЦА
+        $diff = $ap + $osl - $ca;
         if ($diff <= 0) {
             $debtValue = ($stb + $ltb) / $revenue;
-            $debtNote = 'По формуле методики (РАЗНИЦА ≤ 0)';
+            $debtNote = 'Авторасчёт: разница ≤ 0';
         } else {
             $debtValue = ($stb + $ltb + $diff) / $revenue;
-            $debtNote = 'По формуле методики (РАЗНИЦА > 0)';
+            $debtNote = 'Авторасчёт: разница > 0';
         }
     } elseif ($debtValue !== null) {
         $debtNote = 'Задан вручную';
