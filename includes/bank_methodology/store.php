@@ -50,39 +50,47 @@ function bank_methodology_migrate_legacy_case_column(PDO $pdo): void
     }
     $hasApp = in_array('application_id', $cols, true);
     $hasCase = in_array('bank_case_id', $cols, true);
+
     if ($hasApp && !$hasCase) {
         return;
     }
+
     if (!$hasApp && $hasCase) {
         $pdo->exec('ALTER TABLE bank_case_methodology_assessments ADD COLUMN `application_id` int UNSIGNED NULL AFTER `id`');
+        $hasApp = true;
+    }
+
+    if ($hasApp && $hasCase) {
         try {
             $pdo->exec(
                 'UPDATE bank_case_methodology_assessments a
                  INNER JOIN application_product_bank_cases c ON c.id = a.bank_case_id
                  INNER JOIN application_products ap ON ap.id = c.application_product_id
                  SET a.application_id = ap.application_id
-                 WHERE a.application_id IS NULL'
+                 WHERE a.application_id IS NULL OR a.application_id = 0'
             );
         } catch (Throwable $e) {
             // таблицы банковского портала может ещё не быть
         }
-        $pdo->exec('DELETE FROM bank_case_methodology_assessments WHERE application_id IS NULL');
-        $pdo->exec('ALTER TABLE bank_case_methodology_assessments MODIFY `application_id` int UNSIGNED NOT NULL');
+        $pdo->exec('DELETE FROM bank_case_methodology_assessments WHERE application_id IS NULL OR application_id = 0');
         try {
-            $pdo->exec('ALTER TABLE bank_case_methodology_assessments DROP INDEX `uniq_case_version`');
+            $pdo->exec('ALTER TABLE bank_case_methodology_assessments MODIFY `application_id` int UNSIGNED NOT NULL');
         } catch (Throwable $e) {
         }
-        try {
-            $pdo->exec('ALTER TABLE bank_case_methodology_assessments DROP INDEX `idx_case_status`');
-        } catch (Throwable $e) {
-        }
-        try {
-            $pdo->exec('ALTER TABLE bank_case_methodology_assessments DROP INDEX `idx_case_updated`');
-        } catch (Throwable $e) {
+        foreach (['uniq_case_version', 'idx_case_status', 'idx_case_updated'] as $idx) {
+            try {
+                $pdo->exec('ALTER TABLE bank_case_methodology_assessments DROP INDEX `' . $idx . '`');
+            } catch (Throwable $e) {
+            }
         }
         try {
             $pdo->exec('ALTER TABLE bank_case_methodology_assessments DROP COLUMN `bank_case_id`');
         } catch (Throwable $e) {
+            // если DROP не удался — не даём INSERT падать: делаем колонку nullable
+            try {
+                $pdo->exec('ALTER TABLE bank_case_methodology_assessments MODIFY `bank_case_id` int UNSIGNED NULL');
+            } catch (Throwable $e2) {
+            }
         }
         try {
             $pdo->exec('ALTER TABLE bank_case_methodology_assessments ADD UNIQUE KEY `uniq_app_version` (`application_id`, `version`)');

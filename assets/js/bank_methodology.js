@@ -378,14 +378,12 @@
                         <label><input type="checkbox" data-bm-fin-flag="roe_explained_zero" ${inputs.roe_explained_zero ? 'checked' : ''}> 0% с объяснением</label>
                     </div>`;
                 }
-                let valueField = '';
                 return `
                 <div class="bm-metric">
                     <div>
                         <div class="name">${esc(m.label)}</div>
                         <div class="hint" data-bm-fin-note="${esc(id)}"></div>
                         ${zeroExplain}
-                        ${valueField}
                     </div>
                     <div>
                         <label>Ручной балл</label>
@@ -434,11 +432,10 @@
             }).join(' · ');
 
             const actionsHtml = locked
-                ? `<button type="button" class="btn btn-primary btn-sm" data-bm-action="newdraft"><i class="bi bi-plus-lg me-1"></i>Новый черновик</button>`
+                ? `<button type="button" class="btn btn-primary btn-sm" data-bm-action="newdraft" title="Создать редактируемую версию на базе зафиксированной"><i class="bi bi-plus-lg me-1"></i>Новый черновик</button>`
                 : `<button type="button" class="btn btn-outline-secondary btn-sm" data-bm-action="recalc"><i class="bi bi-arrow-repeat me-1"></i>Пересчитать</button>
                         <button type="button" class="btn btn-outline-primary btn-sm" data-bm-action="save"><i class="bi bi-save me-1"></i>Сохранить черновик</button>
-                        <button type="button" class="btn btn-primary btn-sm" data-bm-action="finalize"><i class="bi bi-check2-circle me-1"></i>Зафиксировать</button>
-                        <button type="button" class="btn btn-outline-dark btn-sm" data-bm-action="newdraft"><i class="bi bi-plus-lg me-1"></i>Новый черновик</button>`;
+                        <button type="button" class="btn btn-primary btn-sm" data-bm-action="finalize"><i class="bi bi-check2-circle me-1"></i>Зафиксировать</button>`;
 
             root.innerHTML = `
             <div class="bm-wrap${locked ? ' is-locked' : ''}">
@@ -593,6 +590,11 @@
                         return;
                     }
                     if (name === 'newdraft') {
+                        if (!isLocked()) {
+                            notify('Новый черновик нужен только после фиксации — чтобы править уже утверждённую версию.', 'info');
+                            return;
+                        }
+                        if (!window.confirm('Создать новый черновик на базе зафиксированной оценки? Текущая версия останется в истории.')) return;
                         const data = await api('new_draft', {});
                         if (!data.success) throw new Error(data.error || 'Ошибка');
                         assessment = data.assessment;
