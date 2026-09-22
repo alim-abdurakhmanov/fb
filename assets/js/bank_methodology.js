@@ -92,7 +92,7 @@
             // finance inputs
             const finKeys = [
                 'revenue', 'net_profit', 'equity', 'current_assets', 'current_liabilities',
-                'long_term_liabilities', 'balance_total', 'debt_to_revenue', 'industry',
+                'long_term_liabilities', 'balance_total', 'industry',
                 'short_term_borrowings', 'long_term_borrowings', 'accounts_payable', 'other_short_liabilities'
             ];
             finKeys.forEach(function (k) {
@@ -100,6 +100,7 @@
                 if (!el) return;
                 next.finance.inputs[k] = el.type === 'checkbox' ? el.checked : (el.value === '' ? null : el.value);
             });
+            next.finance.inputs.debt_to_revenue = null;
             ['q1_seasonal_loss_explained'].forEach(function (k) {
                 const el = root.querySelector('[data-bm-fin-flag="' + k + '"]');
                 next.finance.inputs[k] = !!(el && el.checked);
@@ -267,17 +268,6 @@
                     if (m.note) parts.push(m.note);
                     note.textContent = parts.join(' · ');
                 }
-                if (id === 'debt_to_revenue') {
-                    const debtInput = root.querySelector('[data-bm-fin="debt_to_revenue"]');
-                    if (debtInput && document.activeElement !== debtInput) {
-                        const hasManual = String(debtInput.value).trim() !== '';
-                        if (!hasManual && m.value != null && m.value !== '') {
-                            debtInput.placeholder = 'авто: ' + fmtScore(m.value);
-                        } else {
-                            debtInput.placeholder = 'авто — из полей выше';
-                        }
-                    }
-                }
             });
 
             function isZeroPct(v) {
@@ -389,12 +379,6 @@
                     </div>`;
                 }
                 let valueField = '';
-                if (id === 'debt_to_revenue') {
-                    valueField = `<div class="mt-2">
-                        <label>Коэффициент</label>
-                        <input data-bm-fin="debt_to_revenue" inputmode="decimal" placeholder="авто — из полей выше" value="${esc(numOrEmpty(inputs.debt_to_revenue))}">
-                    </div>`;
-                }
                 return `
                 <div class="bm-metric">
                     <div>

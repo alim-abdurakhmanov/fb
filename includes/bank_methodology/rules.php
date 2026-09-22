@@ -186,7 +186,7 @@ function bank_methodology_rules(): array
             'debt_to_revenue' => [
                 'id' => 'debt_to_revenue',
                 'group' => 'coverage',
-                'label' => 'Отношение общей задолженности к выручке',
+                'label' => 'Коэффициент отношения общей задолженности к выручке',
                 'unit' => '',
                 'max' => 9,
                 'weight' => 18.0,
