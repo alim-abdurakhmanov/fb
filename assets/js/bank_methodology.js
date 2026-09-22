@@ -310,7 +310,7 @@
                         <div class="hint" data-bm-fin-note="${esc(id)}"></div>
                     </div>
                     <div>
-                        <label>Ручной балл (override)</label>
+                        <label>Ручной балл</label>
                         <input data-bm-fin-score="${esc(id)}" inputmode="decimal" placeholder="авто" value="${esc(numOrEmpty(ov))}">
                     </div>
                     <div>
@@ -340,7 +340,7 @@
                         </div>
                     </div>
                     <div>
-                        <label>Ручной балл (override)</label>
+                        <label>Ручной балл</label>
                         <input data-bm-biz-score="${esc(id)}" inputmode="decimal" placeholder="авто" value="${esc(numOrEmpty(row.score_override))}">
                     </div>
                     <div>
