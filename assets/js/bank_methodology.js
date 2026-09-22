@@ -277,34 +277,65 @@
             const stopGroupOrder = Object.keys(stopGroupLabels).length
                 ? Object.keys(stopGroupLabels)
                 : Object.keys(stopByGroup);
+            let stopTriggered = 0;
+            let stopTotal = 0;
+            (rules.stop_factors || []).forEach(function (sf) {
+                stopTotal += 1;
+                const row = (state.stop_factors || []).find(function (x) { return x.code === sf.code; }) || {};
+                if (row.triggered) stopTriggered += 1;
+            });
             const stopHtml = stopGroupOrder.map(function (groupId) {
                 const items = stopByGroup[groupId];
                 if (!items || !items.length) return '';
                 const title = stopGroupLabels[groupId] || groupId;
                 const isMulti = items.length > 1;
-                const cards = items.map(function (sf) {
+                const groupOn = items.filter(function (sf) {
+                    const row = (state.stop_factors || []).find(function (x) { return x.code === sf.code; }) || {};
+                    return !!row.triggered;
+                }).length;
+                const rows = items.map(function (sf) {
                     const row = (state.stop_factors || []).find(function (x) { return x.code === sf.code; }) || {};
                     const on = !!row.triggered;
                     const cond = !sf.mandatory;
                     const id = 'bm-stop-' + String(sf.code).replace(/[^a-zA-Z0-9_-]/g, '_');
+                    const shortTitle = sf.short_label || sf.label;
+                    const fullLabel = sf.label || shortTitle;
+                    const showDetails = fullLabel !== shortTitle;
                     return `
-                    <div class="bm-stop-item ${on ? 'is-on' : ''} ${cond ? 'is-conditional' : ''}">
-                        <label class="bm-stop-head" for="${esc(id)}">
-                            <input id="${esc(id)}" type="checkbox" data-bm-stop="${esc(sf.code)}" ${on ? 'checked' : ''}>
-                            <span class="title">${esc(sf.label)}</span>
-                        </label>
-                        <textarea data-bm-stop-comment="${esc(sf.code)}" rows="2" placeholder="Комментарий">${esc(row.comment || '')}</textarea>
+                    <div class="bm-stop-item ${on ? 'is-on' : ''} ${cond ? 'is-conditional' : ''}" data-bm-stop-item="${esc(sf.code)}">
+                        <div class="bm-stop-row">
+                            <label class="bm-stop-head" for="${esc(id)}">
+                                <input id="${esc(id)}" type="checkbox" data-bm-stop="${esc(sf.code)}" ${on ? 'checked' : ''}>
+                                <span class="title">${esc(shortTitle)}</span>
+                            </label>
+                            ${showDetails ? `<button type="button" class="bm-stop-more" data-bm-stop-more="${esc(sf.code)}" aria-expanded="false" title="Полная формулировка">i</button>` : ''}
+                        </div>
+                        ${showDetails ? `<div class="bm-stop-detail" hidden><div class="bm-stop-full">${esc(fullLabel)}</div></div>` : ''}
+                        <textarea data-bm-stop-comment="${esc(sf.code)}" rows="2" placeholder="Комментарий при срабатывании">${esc(row.comment || '')}</textarea>
                     </div>`;
                 }).join('');
                 const heading = isMulti
-                    ? `<h6 class="bm-stop-group-title">${esc(title)}</h6>`
+                    ? `<button type="button" class="bm-stop-group-toggle" data-bm-stop-group-toggle aria-expanded="true">
+                            <span class="bm-stop-group-title">${esc(title)}</span>
+                            <span class="bm-stop-group-meta">${groupOn ? (groupOn + ' · ') : ''}${items.length}</span>
+                       </button>`
                     : '';
+                // Одиночные пункты: без лишнего заголовка категории (short_label уже самодостаточен).
+                // Мульти-группы: открыты по умолчанию; сворачиваются по клику.
                 return `
-                <div class="bm-stop-group${isMulti ? '' : ' bm-stop-group-single'}">
+                <div class="bm-stop-group${isMulti ? '' : ' bm-stop-group-single'}${groupOn ? ' has-on' : ''}" data-bm-stop-group="${esc(groupId)}">
                     ${heading}
-                    <div class="bm-stop-grid">${cards}</div>
+                    <div class="bm-stop-list">${rows}</div>
                 </div>`;
             }).join('');
+            const stopToolbar = `
+                <div class="bm-stop-toolbar">
+                    <span class="bm-stop-count" data-bm-stop-count>Отмечено ${stopTriggered} из ${stopTotal}</span>
+                    <div class="bm-stop-toolbar-actions">
+                        <button type="button" class="bm-stop-filter${stopTriggered ? '' : ' is-disabled'}" data-bm-stop-filter="triggered" ${stopTriggered ? '' : 'disabled'}>Только отмеченные</button>
+                        <button type="button" class="bm-stop-filter is-active" data-bm-stop-filter="all">Все</button>
+                    </div>
+                </div>`;
 
             const inputs = state.finance.inputs || {};
             const locked = isLocked();
@@ -423,8 +454,11 @@
                 <div data-bm-banners></div>
 
                 <div class="bm-section" data-bm-section="stops">
-                    <div class="bm-section-head"><h5>1. Стоп-факторы</h5><span class="meta">обязательные и условные</span></div>
-                    <div class="bm-section-body"><div class="bm-stop-groups">${stopHtml}</div></div>
+                    <div class="bm-section-head"><h5>1. Стоп-факторы</h5><span class="meta">${stopTriggered ? ('отмечено ' + stopTriggered) : 'отметьте сработавшие'}</span></div>
+                    <div class="bm-section-body">
+                        ${stopToolbar}
+                        <div class="bm-stop-groups">${stopHtml}</div>
+                    </div>
                 </div>
 
                 <div class="bm-section" data-bm-section="finance">
@@ -508,6 +542,59 @@
                 el.addEventListener('change', function () {
                     const item = el.closest('.bm-stop-item');
                     if (item) item.classList.toggle('is-on', !!el.checked);
+                    const group = el.closest('[data-bm-stop-group]');
+                    if (group) {
+                        const anyOn = !!group.querySelector('[data-bm-stop]:checked');
+                        group.classList.toggle('has-on', anyOn);
+                    }
+                    const countEl = root.querySelector('[data-bm-stop-count]');
+                    if (countEl) {
+                        const on = root.querySelectorAll('[data-bm-stop]:checked').length;
+                        const total = root.querySelectorAll('[data-bm-stop]').length;
+                        countEl.textContent = 'Отмечено ' + on + ' из ' + total;
+                    }
+                    const filterTriggered = root.querySelector('[data-bm-stop-filter="triggered"]');
+                    if (filterTriggered) {
+                        const on = root.querySelectorAll('[data-bm-stop]:checked').length;
+                        filterTriggered.disabled = !on;
+                        filterTriggered.classList.toggle('is-disabled', !on);
+                    }
+                });
+            });
+
+            root.querySelectorAll('[data-bm-stop-more]').forEach(function (btn) {
+                btn.addEventListener('click', function (e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const item = btn.closest('.bm-stop-item');
+                    if (!item) return;
+                    const detail = item.querySelector('.bm-stop-detail');
+                    if (!detail) return;
+                    const open = detail.hasAttribute('hidden');
+                    if (open) detail.removeAttribute('hidden');
+                    else detail.setAttribute('hidden', '');
+                    btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+                    btn.classList.toggle('is-open', open);
+                });
+            });
+
+            root.querySelectorAll('[data-bm-stop-group-toggle]').forEach(function (btn) {
+                btn.addEventListener('click', function () {
+                    const group = btn.closest('.bm-stop-group');
+                    if (!group) return;
+                    const collapsed = group.classList.toggle('is-collapsed');
+                    btn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+                });
+            });
+
+            root.querySelectorAll('[data-bm-stop-filter]').forEach(function (btn) {
+                btn.addEventListener('click', function () {
+                    const mode = btn.getAttribute('data-bm-stop-filter');
+                    root.querySelectorAll('[data-bm-stop-filter]').forEach(function (b) {
+                        b.classList.toggle('is-active', b === btn);
+                    });
+                    const groups = root.querySelector('.bm-stop-groups');
+                    if (groups) groups.setAttribute('data-filter', mode === 'triggered' ? 'triggered' : 'all');
                 });
             });
 
