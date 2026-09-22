@@ -168,48 +168,111 @@
 
 .bm-stop-grid {
     display: grid;
-    gap: 0.55rem;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.65rem;
+}
+
+@media (max-width: 900px) {
+    .bm-stop-grid {
+        grid-template-columns: 1fr;
+    }
 }
 
 .bm-stop-item {
-    display: grid;
-    grid-template-columns: 28px 1fr;
-    gap: 0.65rem;
-    align-items: start;
-    padding: 0.7rem 0.8rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+    padding: 0.65rem 0.75rem;
     border-radius: 10px;
-    border: 1px solid #eef2f7;
-    background: #fbfcfd;
+    border: 1px solid #e8eef5;
+    background: #fff;
+    min-width: 0;
 }
 
 .bm-stop-item.is-on {
     background: #fff5f4;
-    border-color: #f3c7c2;
+    border-color: #f0c4be;
 }
 
 .bm-stop-item.is-conditional.is-on {
     background: #fffaf0;
-    border-color: #f0d9a0;
+    border-color: #edd9a8;
 }
 
-.bm-stop-item label.title {
-    font-weight: 600;
-    font-size: 0.9rem;
+.bm-stop-head {
+    display: grid;
+    grid-template-columns: 18px 1fr;
+    gap: 0.55rem;
+    align-items: start;
     margin: 0;
     cursor: pointer;
 }
 
-.bm-stop-item .codes {
+.bm-stop-head input {
+    margin-top: 0.2rem;
+    width: auto;
+}
+
+.bm-stop-main {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    min-width: 0;
+}
+
+.bm-stop-item .title {
+    font-weight: 600;
+    font-size: 0.88rem;
+    line-height: 1.35;
+    color: var(--bm-ink);
+}
+
+.bm-stop-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.bm-stop-code {
     font-size: 0.72rem;
     color: var(--bm-muted);
-    margin-top: 0.1rem;
+}
+
+.bm-stop-kind {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.1rem 0.4rem;
+    border-radius: 999px;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+}
+
+.bm-stop-kind.must {
+    background: #fdecec;
+    color: #a33b32;
+}
+
+.bm-stop-kind.cond {
+    background: #fff3d9;
+    color: #8a6a1a;
 }
 
 .bm-stop-item textarea {
-    margin-top: 0.45rem;
+    display: none;
     width: 100%;
-    min-height: 54px;
-    font-size: 0.85rem;
+    min-height: 52px;
+    font-size: 0.82rem;
+    border: 1px solid #e0e7ef;
+    border-radius: 8px;
+    padding: 0.4rem 0.55rem;
+    resize: vertical;
+}
+
+.bm-stop-item:has(input[data-bm-stop]:checked) textarea,
+.bm-stop-item.is-on textarea {
+    display: block;
 }
 
 .bm-finance-grid,

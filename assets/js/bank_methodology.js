@@ -208,7 +208,7 @@
                 <div class="bm-kpi">
                     <div class="label">Рейтинг</div>
                     <div class="value ${posClass}">${esc(ratingText)}</div>
-                    <div class="sub ${posClass}">${esc(posText)}${r.hard_stop ? ' · стоп-фактор' : ''}</div>
+                    <div class="sub ${posClass}">${esc(posText)}${r.hard_stop ? ' · обязательный стоп' : ''}${(r.conditional_stops || []).length ? ' · условный стоп' : ''}</div>
                 </div>`;
         }
 
@@ -225,9 +225,19 @@
             }
             if (r.hard_stop) {
                 const list = (r.mandatory_stops || []).map(function (s) {
-                    return '<li><strong>' + esc(s.code) + '</strong> — ' + esc(s.label) + '</li>';
+                    return '<li><strong>' + esc(s.code) + '</strong> — ' + esc(s.label)
+                        + (s.comment ? ' <span class="text-muted">(' + esc(s.comment) + ')</span>' : '')
+                        + '</li>';
                 }).join('');
                 html += `<div class="bm-banner stop"><strong>Сработали обязательные стоп-факторы.</strong> Как правило — отказ от сделки.<ul class="mb-0 mt-2">${list}</ul></div>`;
+            }
+            if ((r.conditional_stops || []).length) {
+                const list = (r.conditional_stops || []).map(function (s) {
+                    return '<li><strong>' + esc(s.code) + '</strong> — ' + esc(s.label)
+                        + (s.comment ? ' <span class="text-muted">(' + esc(s.comment) + ')</span>' : '')
+                        + '</li>';
+                }).join('');
+                html += `<div class="bm-banner warn"><strong>Отмечены условные стоп-факторы.</strong> Не блокируют оценку автоматически — учитываются в профсуждении.<ul class="mb-0 mt-2">${list}</ul></div>`;
             }
             (r.warnings || []).forEach(function (w) {
                 if (r.incomplete && String(w).indexOf('Недостаточно данных') === 0) {
@@ -309,14 +319,20 @@
                 const row = (state.stop_factors || []).find(function (x) { return x.code === sf.code; }) || {};
                 const on = !!row.triggered;
                 const cond = !sf.mandatory;
+                const id = 'bm-stop-' + String(sf.code).replace(/[^a-zA-Z0-9_-]/g, '_');
                 return `
                 <div class="bm-stop-item ${on ? 'is-on' : ''} ${cond ? 'is-conditional' : ''}">
-                    <div><input type="checkbox" data-bm-stop="${esc(sf.code)}" ${on ? 'checked' : ''}></div>
-                    <div>
-                        <label class="title">${esc(sf.label)}</label>
-                        <div class="codes">${esc(sf.code)}${cond ? ' · условный' : ' · обязательный'}</div>
-                        <textarea data-bm-stop-comment="${esc(sf.code)}" placeholder="Комментарий (обязателен при снятии/установке по решению менеджера)">${esc(row.comment || '')}</textarea>
-                    </div>
+                    <label class="bm-stop-head" for="${esc(id)}">
+                        <input id="${esc(id)}" type="checkbox" data-bm-stop="${esc(sf.code)}" ${on ? 'checked' : ''}>
+                        <span class="bm-stop-main">
+                            <span class="title">${esc(sf.label)}</span>
+                            <span class="bm-stop-meta">
+                                <span class="bm-stop-code">${esc(sf.code)}</span>
+                                <span class="bm-stop-kind ${cond ? 'cond' : 'must'}">${cond ? 'условный' : 'обязательный'}</span>
+                            </span>
+                        </span>
+                    </label>
+                    <textarea data-bm-stop-comment="${esc(sf.code)}" rows="2" placeholder="Комментарий">${esc(row.comment || '')}</textarea>
                 </div>`;
             }).join('');
 
