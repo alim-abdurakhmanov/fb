@@ -538,6 +538,13 @@
                 el.addEventListener('input', scheduleRecalc);
             });
 
+            root.querySelectorAll('[data-bm-stop]').forEach(function (el) {
+                el.addEventListener('change', function () {
+                    const item = el.closest('.bm-stop-item');
+                    if (item) item.classList.toggle('is-on', !!el.checked);
+                });
+            });
+
             const act = async function (name) {
                 try {
                     if (name === 'recalc') {
