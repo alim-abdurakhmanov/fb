@@ -208,7 +208,7 @@
                 <div class="bm-kpi">
                     <div class="label">Рейтинг</div>
                     <div class="value ${posClass}">${esc(ratingText)}</div>
-                    <div class="sub ${posClass}">${esc(posText)}${r.hard_stop ? ' · обязательный стоп' : ''}${(r.conditional_stops || []).length ? ' · условный стоп' : ''}</div>
+                    <div class="sub ${posClass}">${esc(posText)}${r.hard_stop ? ' · обязательный стоп' : ''}</div>
                 </div>`;
         }
 
@@ -335,11 +335,11 @@
             const locked = isLocked();
             const finInputsHtml = `
                 <div class="bm-inputs">
-                    <div><label>Выручка, руб</label><input data-bm-fin="revenue" inputmode="decimal" placeholder="0 — нет выручки" value="${esc(numOrEmpty(inputs.revenue))}"></div>
+                    <div><label>Выручка, руб</label><input data-bm-fin="revenue" inputmode="decimal" value="${esc(numOrEmpty(inputs.revenue))}"></div>
                     <div><label>Чистая прибыль, руб</label><input data-bm-fin="net_profit" inputmode="decimal" value="${esc(numOrEmpty(inputs.net_profit))}"></div>
-                    <div><label>Собственные средства (СК), руб</label><input data-bm-fin="equity" inputmode="decimal" placeholder="0 — нет СК" value="${esc(numOrEmpty(inputs.equity))}"></div>
+                    <div><label>Собственные средства (СК), руб</label><input data-bm-fin="equity" inputmode="decimal" value="${esc(numOrEmpty(inputs.equity))}"></div>
                     <div><label>Текущие активы, руб</label><input data-bm-fin="current_assets" inputmode="decimal" value="${esc(numOrEmpty(inputs.current_assets))}"></div>
-                    <div><label>Текущие обязательства, руб</label><input data-bm-fin="current_liabilities" inputmode="decimal" placeholder="0 — нет обязательств" value="${esc(numOrEmpty(inputs.current_liabilities))}"></div>
+                    <div><label>Текущие обязательства, руб</label><input data-bm-fin="current_liabilities" inputmode="decimal" value="${esc(numOrEmpty(inputs.current_liabilities))}"></div>
                     <div><label>Долгосрочные обязательства, руб</label><input data-bm-fin="long_term_liabilities" inputmode="decimal" value="${esc(numOrEmpty(inputs.long_term_liabilities))}"></div>
                     <div><label>Валюта баланса (итог), руб</label><input data-bm-fin="balance_total" inputmode="decimal" value="${esc(numOrEmpty(inputs.balance_total))}"></div>
                     <div><label>Краткосрочные займы, руб</label><input data-bm-fin="short_term_borrowings" inputmode="decimal" value="${esc(numOrEmpty(inputs.short_term_borrowings))}"></div>
@@ -379,7 +379,6 @@
                     valueField = `<div class="mt-2">
                         <label>Коэффициент</label>
                         <input data-bm-fin="debt_to_revenue" inputmode="decimal" placeholder="авто — из полей выше" value="${esc(numOrEmpty(inputs.debt_to_revenue))}">
-                        <div class="hint mt-1">Можно поправить вручную. Авто: разница = кредиторка + прочие кр. − текущие активы; затем (займы ± разница) / выручка.</div>
                     </div>`;
                 }
                 return `
