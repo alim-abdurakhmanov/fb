@@ -114,6 +114,7 @@ $mgrBankCommentHtml = trim((string) ($caseRow['manager_comment'] ?? ''));
 ?>
 <link rel="stylesheet" href="assets/css/application_tabs.css">
 <link rel="stylesheet" href="assets/css/company_analytics.css?v=<?= (int) (@filemtime(__DIR__ . '/assets/css/company_analytics.css') ?: time()) ?>">
+<link rel="stylesheet" href="assets/css/bank_methodology.css?v=<?= (int) (@filemtime(__DIR__ . '/assets/css/bank_methodology.css') ?: time()) ?>">
 
 <div class="row">
     <div class="col-12">
@@ -131,6 +132,11 @@ $mgrBankCommentHtml = trim((string) ($caseRow['manager_comment'] ?? ''));
     <li class="nav-item" role="presentation">
         <button class="nav-link" id="bank-analytics-tab" data-bs-toggle="tab" data-bs-target="#bankAppAnalytics" type="button" role="tab" aria-controls="bankAppAnalytics" aria-selected="false">
             <i class="bi bi-graph-up me-2"></i><span class="tab-label">Аналитика</span>
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="bank-methodology-tab" data-bs-toggle="tab" data-bs-target="#bankAppMethodology" type="button" role="tab" aria-controls="bankAppMethodology" aria-selected="false">
+            <i class="bi bi-clipboard2-check me-2"></i><span class="tab-label">Методика</span>
         </button>
     </li>
     <li class="nav-item" role="presentation">
@@ -300,6 +306,10 @@ $mgrBankCommentHtml = trim((string) ($caseRow['manager_comment'] ?? ''));
             ?>
         </div>
     </div>
+</div>
+
+<div class="tab-pane fade" id="bankAppMethodology" role="tabpanel" aria-labelledby="bank-methodology-tab">
+    <?php require __DIR__ . '/includes/partials/bank_methodology_tab.php'; ?>
 </div>
 
 <div class="tab-pane fade" id="bankAppStructure" role="tabpanel" aria-labelledby="bank-structure-tab">
@@ -530,6 +540,7 @@ $mgrBankCommentHtml = trim((string) ($caseRow['manager_comment'] ?? ''));
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="assets/js/company_analytics.js?v=<?= (int) (@filemtime(__DIR__ . '/assets/js/company_analytics.js') ?: time()) ?>"></script>
+<script src="assets/js/bank_methodology.js?v=<?= (int) (@filemtime(__DIR__ . '/assets/js/bank_methodology.js') ?: time()) ?>"></script>
 <script>
 (function () {
     const caseId = <?= (int) $caseId ?>;

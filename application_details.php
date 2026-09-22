@@ -115,6 +115,14 @@ require_once 'header.php';
 ?>
 <link rel="stylesheet" href="assets/css/company_analytics.css?v=<?= (int) (@filemtime(__DIR__ . '/assets/css/company_analytics.css') ?: time()) ?>">
 <?php
+$showMethodologyTab = finbuild_can_view_methodology($currentUser);
+if ($showMethodologyTab):
+    require_once __DIR__ . '/includes/bank_portal.php';
+    $bmCases = finbank_application_bank_cases_for_methodology($pdo, (int) $applicationId);
+?>
+<link rel="stylesheet" href="assets/css/bank_methodology.css?v=<?= (int) (@filemtime(__DIR__ . '/assets/css/bank_methodology.css') ?: time()) ?>">
+<?php endif; ?>
+<?php
 require_once __DIR__ . '/includes/public/landing_data.php';
 
 // Безопасный return назад в список заявок (только внутренний applications.php?... без протокола/домена)
@@ -1873,6 +1881,13 @@ body.app-chat-open .app-chat-fab { display: none; }
             </li>
                 <?php endif; ?>
                 <?php endif; ?>
+            <?php if (!empty($showMethodologyTab)): ?>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="methodology-tab" data-bs-toggle="tab" data-bs-target="#methodology" type="button" role="tab">
+                    <i class="bi bi-clipboard2-check me-2"></i><span class="tab-label">Методика</span>
+                </button>
+            </li>
+            <?php endif; ?>
             <?php endif; ?>
         </ul>
 
@@ -3234,6 +3249,17 @@ body.app-chat-open .app-chat-fab { display: none; }
 </div>
 <?php endif; ?>
 
+<?php if (!empty($showMethodologyTab)): ?>
+<div class="tab-pane fade" id="methodology" role="tabpanel">
+    <?php
+    $bmTabId = 'methodology-tab';
+    $bmRootId = 'appMethodologyRoot';
+    $caseId = 0;
+    require __DIR__ . '/includes/partials/bank_methodology_tab.php';
+    ?>
+</div>
+<?php endif; ?>
+
 <?php if ($showStructureTab && (finbuild_is_manager($userRole) || $isAnalystView)): ?>
 <!-- Вкладка «Структура» -->
 <div class="tab-pane fade" id="structure" role="tabpanel">
@@ -3433,6 +3459,9 @@ body.app-chat-open .app-chat-fab { display: none; }
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="assets/js/company_analytics.js?v=<?= (int) (@filemtime(__DIR__ . '/assets/js/company_analytics.js') ?: time()) ?>"></script>
+<?php if (!empty($showMethodologyTab)): ?>
+<script src="assets/js/bank_methodology.js?v=<?= (int) (@filemtime(__DIR__ . '/assets/js/bank_methodology.js') ?: time()) ?>"></script>
+<?php endif; ?>
 <script>
 // Глобальная функция для уведомлений
 function showNotification(message, type = 'success') {
