@@ -40,7 +40,7 @@ function bank_methodology_empty_state(): array
                 'revenue' => null, // выручка текущего периода (для рентабельности)
                 'revenue_last_year' => null, // выручка за последний завершённый год (для долг/выручка)
                 'net_profit' => null,
-                'prior_year_net_profit' => null, // прибыль предыдущего года (для правила убытка 1 кв.)
+                'prior_year_net_profit' => null, // прибыль за последний завершённый год (правило убытка 1 кв.)
                 'income_from_participation' => null, // стр.6 ОПУ — для аналога выручки
                 'interest_receivable' => null, // стр.7
                 'other_income' => null, // стр.9
@@ -448,7 +448,7 @@ function bank_methodology_compute_ratios(array $inputs): array
         }
         if ($q1SeasonalOk && $tpValue < 0) {
             $tpScore = 0.0;
-            $tpNote = trim(($tpNote !== '' ? $tpNote . '; ' : '') . 'Убыток 1 кв. при сезонности (прибыль прошлого года, комментарий)');
+            $tpNote = trim(($tpNote !== '' ? $tpNote . '; ' : '') . 'Убыток 1 кв. при сезонности (прибыль за последний завершённый год, комментарий)');
         }
     }
     $out['total_profitability'] = ['value' => $tpValue, 'score' => $tpScore, 'note' => $tpNote];
@@ -471,7 +471,7 @@ function bank_methodology_compute_ratios(array $inputs): array
         }
         if ($q1SeasonalOk && $roeValue < 0) {
             $roeScore = 0.0;
-            $roeNote = 'Убыток 1 кв. при сезонности (прибыль прошлого года, комментарий)';
+            $roeNote = 'Убыток 1 кв. при сезонности (прибыль за последний завершённый год, комментарий)';
         }
     }
     $out['roe'] = ['value' => $roeValue, 'score' => $roeScore, 'note' => $roeNote];
