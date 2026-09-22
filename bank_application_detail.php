@@ -136,7 +136,7 @@ $mgrBankCommentHtml = trim((string) ($caseRow['manager_comment'] ?? ''));
     </li>
     <li class="nav-item" role="presentation">
         <button class="nav-link" id="bank-methodology-tab" data-bs-toggle="tab" data-bs-target="#bankAppMethodology" type="button" role="tab" aria-controls="bankAppMethodology" aria-selected="false">
-            <i class="bi bi-clipboard2-check me-2"></i><span class="tab-label">Методика</span>
+            <i class="bi bi-clipboard2-check me-2"></i><span class="tab-label">Банковская методика</span>
         </button>
     </li>
     <li class="nav-item" role="presentation">

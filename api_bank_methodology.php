@@ -2,7 +2,7 @@
 /**
  * API: оценка по банковской методике.
  * ЛК банка — всегда; сотрудники — при праве methodology.view.
- * Отдельно от FinScore.
+ * Оценка хранится на заявку (application_id), без привязки к отправке в банк.
  */
 declare(strict_types=1);
 
@@ -19,51 +19,43 @@ function bank_methodology_json(array $data): void
 }
 
 /**
- * Доступ к кейсу для методики: банк своего портала или сотрудник с methodology.view.
+ * Доступ к заявке для методики: банк своего портала или сотрудник с methodology.view.
  *
- * @return array<string,mixed>|null
+ * @return array{application_id:int}|null
  */
-function bank_methodology_assert_case_access(PDO $pdo, int $caseId, array $user): ?array
+function bank_methodology_assert_application_access(PDO $pdo, int $applicationId, array $user): ?array
 {
-    if ($caseId <= 0) {
+    if ($applicationId <= 0) {
         return null;
     }
 
     $role = (string) ($user['role'] ?? '');
     $userId = (int) ($user['id'] ?? 0);
 
+    $stmt = $pdo->prepare('SELECT id FROM applications WHERE id = ? LIMIT 1');
+    $stmt->execute([$applicationId]);
+    if (!(int) $stmt->fetchColumn()) {
+        return null;
+    }
+
     if ($role === 'bank') {
         $bankCode = finbank_user_bank_code($pdo, $user);
-        if ($bankCode === null) {
+        if ($bankCode === null || !finbank_bank_can_view_application($pdo, $applicationId, $bankCode)) {
             return null;
         }
-        return finbank_bank_submitted_case($pdo, $caseId, $bankCode);
+        return ['application_id' => $applicationId];
     }
 
     if (!finbuild_can_view_methodology($user)) {
         return null;
     }
 
-    $stmt = $pdo->prepare(
-        'SELECT c.*, ap.application_id, ap.id AS application_product_id, ap.bank_name, ap.product_name, ap.product_type, ap.status AS product_status
-         FROM application_product_bank_cases c
-         INNER JOIN application_products ap ON ap.id = c.application_product_id
-         WHERE c.id = ?
-         LIMIT 1'
-    );
-    $stmt->execute([$caseId]);
-    $case = $stmt->fetch(PDO::FETCH_ASSOC);
-    if (!$case) {
-        return null;
-    }
-
-    $applicationId = (int) ($case['application_id'] ?? 0);
     $isAnalystFlag = function_exists('finbuild_user_is_analyst_flag') && finbuild_user_is_analyst_flag($user);
-    if ($applicationId <= 0 || !finbuild_can_access_application($pdo, $applicationId, $role, $userId, $isAnalystFlag)) {
+    if (!finbuild_can_access_application($pdo, $applicationId, $role, $userId, $isAnalystFlag)) {
         return null;
     }
 
-    return $case;
+    return ['application_id' => $applicationId];
 }
 
 if (!isset($_SESSION['user_id']) || !finbuild_sync_session_user()) {
@@ -75,27 +67,42 @@ $userId = (int) $_SESSION['user_id'];
 $role = (string) ($_SESSION['role'] ?? '');
 $currentUser = getCurrentUser() ?: ['id' => $userId, 'role' => $role];
 $action = (string) ($_POST['action'] ?? $_GET['action'] ?? '');
-$caseId = (int) ($_POST['bank_case_id'] ?? $_GET['bank_case_id'] ?? 0);
+$applicationId = (int) ($_POST['application_id'] ?? $_GET['application_id'] ?? 0);
 
-if ($caseId <= 0) {
-    bank_methodology_json(['success' => false, 'error' => 'Не указан кейс']);
+// Совместимость: ЛК банка мог передавать bank_case_id — берём application_id из кейса
+if ($applicationId <= 0) {
+    $legacyCaseId = (int) ($_POST['bank_case_id'] ?? $_GET['bank_case_id'] ?? 0);
+    if ($legacyCaseId > 0) {
+        $stmt = $pdo->prepare(
+            'SELECT ap.application_id
+             FROM application_product_bank_cases c
+             INNER JOIN application_products ap ON ap.id = c.application_product_id
+             WHERE c.id = ?
+             LIMIT 1'
+        );
+        $stmt->execute([$legacyCaseId]);
+        $applicationId = (int) $stmt->fetchColumn();
+    }
 }
 
-$case = bank_methodology_assert_case_access($pdo, $caseId, $currentUser);
-if (!$case) {
-    bank_methodology_json(['success' => false, 'error' => 'Нет доступа к кейсу']);
+if ($applicationId <= 0) {
+    bank_methodology_json(['success' => false, 'error' => 'Не указана заявка']);
 }
 
-$applicationId = (int) ($case['application_id'] ?? 0);
+$access = bank_methodology_assert_application_access($pdo, $applicationId, $currentUser);
+if (!$access) {
+    bank_methodology_json(['success' => false, 'error' => 'Нет доступа к заявке']);
+}
+
 $appStmt = $pdo->prepare('SELECT id, company_name, inn, amount, contract_price FROM applications WHERE id = ?');
 $appStmt->execute([$applicationId]);
 $appRow = $appStmt->fetch(PDO::FETCH_ASSOC) ?: [];
 
 try {
     if ($action === 'get') {
-        $latest = bank_methodology_fetch_latest($pdo, $caseId);
-        $final = bank_methodology_fetch_latest_final($pdo, $caseId);
-        $history = bank_methodology_fetch_history($pdo, $caseId);
+        $latest = bank_methodology_fetch_latest($pdo, $applicationId);
+        $final = bank_methodology_fetch_latest_final($pdo, $applicationId);
+        $history = bank_methodology_fetch_history($pdo, $applicationId);
         $state = $latest['state'] ?? bank_methodology_empty_state();
         $evaluated = bank_methodology_evaluate($state);
         bank_methodology_json([
@@ -128,12 +135,6 @@ try {
                 'amount' => $appRow['amount'] ?? null,
                 'contract_price' => $appRow['contract_price'] ?? null,
             ],
-            'bank_case' => [
-                'id' => $caseId,
-                'bank_name' => (string) ($case['bank_name'] ?? ''),
-                'product_name' => (string) ($case['product_name'] ?? ''),
-                'status' => (string) ($case['status'] ?? ''),
-            ],
         ]);
     }
 
@@ -153,7 +154,7 @@ try {
         if (!is_array($state)) {
             bank_methodology_json(['success' => false, 'error' => 'Некорректное состояние']);
         }
-        $saved = bank_methodology_save_draft($pdo, $caseId, $userId, $state);
+        $saved = bank_methodology_save_draft($pdo, $applicationId, $userId, $state);
         $evaluated = bank_methodology_evaluate($saved['state']);
         bank_methodology_json([
             'success' => true,
@@ -173,7 +174,7 @@ try {
             }
             $state = $decoded;
         }
-        $saved = bank_methodology_finalize($pdo, $caseId, $userId, $state);
+        $saved = bank_methodology_finalize($pdo, $applicationId, $userId, $state);
         $evaluated = bank_methodology_evaluate($saved['state']);
         bank_methodology_json([
             'success' => true,
@@ -184,12 +185,9 @@ try {
     }
 
     if ($action === 'new_draft' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-        // Создать новый draft на базе последнего final/latest
-        $latest = bank_methodology_fetch_latest($pdo, $caseId);
+        $latest = bank_methodology_fetch_latest($pdo, $applicationId);
         $base = $latest['state'] ?? bank_methodology_empty_state();
-        // Если latest draft — сначала «замораживаем» его как есть, затем новая версия через finalize-like clone
         if ($latest && $latest['status'] === 'draft') {
-            // просто вернём текущий draft
             bank_methodology_json([
                 'success' => true,
                 'assessment' => $latest,
@@ -197,7 +195,7 @@ try {
                 'message' => 'Уже есть черновик',
             ]);
         }
-        $saved = bank_methodology_save_draft($pdo, $caseId, $userId, $base);
+        $saved = bank_methodology_save_draft($pdo, $applicationId, $userId, $base);
         bank_methodology_json([
             'success' => true,
             'assessment' => $saved,
