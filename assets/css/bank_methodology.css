@@ -224,6 +224,10 @@
     gap: 1.15rem;
 }
 
+.bm-stop-group-single {
+    /* одиночные пункты методики (3, 4, 6…15) — без подзаголовка */
+}
+
 .bm-stop-group-title {
     margin: 0 0 0.55rem;
     padding-bottom: 0.35rem;
@@ -231,8 +235,8 @@
     font-size: 0.8rem;
     font-weight: 700;
     letter-spacing: 0.03em;
-    text-transform: uppercase;
-    color: var(--bm-muted);
+    text-transform: none;
+    color: var(--bm-ink);
 }
 
 .bm-stop-grid {
