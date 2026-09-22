@@ -38,13 +38,21 @@
         const root = document.getElementById(opts.rootId || 'bankMethodologyRoot');
         if (!root) return;
 
-        const caseId = Number(opts.bankCaseId || 0);
+        const nextCaseId = Number(opts.bankCaseId || 0);
+        // Повторный вызов на том же root — смена кейса без повторной подписки на вкладку
+        if (root._bmCtl && typeof root._bmCtl.setCaseId === 'function') {
+            root._bmCtl.setCaseId(nextCaseId);
+            return root._bmCtl;
+        }
+
+        let caseId = nextCaseId;
         let rules = null;
         let state = null;
         let evaluated = null;
         let assessment = null;
         let history = [];
         let dirty = false;
+        let loaded = false;
 
         async function api(action, payload) {
             if (action === 'get') {
@@ -552,7 +560,6 @@
 
         // lazy load when tab shown
         const tabBtn = document.getElementById(opts.tabId || 'bank-methodology-tab');
-        let loaded = false;
         function ensureLoad() {
             if (loaded) return;
             loaded = true;
@@ -567,7 +574,28 @@
 
         // also if URL tab points here
         const params = new URLSearchParams(window.location.search);
-        if (params.get('tab') === 'bankAppMethodology') ensureLoad();
+        if (params.get('tab') === 'bankAppMethodology' || params.get('tab') === 'methodology') ensureLoad();
+
+        const ctl = {
+            setCaseId: function (id) {
+                const next = Number(id || 0);
+                if (next <= 0 || next === caseId) return;
+                caseId = next;
+                dirty = false;
+                rules = null;
+                state = null;
+                evaluated = null;
+                assessment = null;
+                history = [];
+                if (loaded) {
+                    load();
+                } else {
+                    ensureLoad();
+                }
+            }
+        };
+        root._bmCtl = ctl;
+        return ctl;
     }
 
     window.initBankMethodology = initBankMethodology;

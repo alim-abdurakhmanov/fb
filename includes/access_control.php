@@ -48,6 +48,12 @@ function finbuild_access_permission_defs(): array
             'hint' => 'Вкладка «Работа с банком»: отправка пакета в банк и чат с банком. ЛК банка не затрагивается.',
             'applicable_roles' => ['director', 'manager', 'case_manager', 'analyst'],
         ],
+        'methodology.view' => [
+            'label' => 'Методика',
+            'group' => 'Заявки',
+            'hint' => 'Вкладка «Методика» на карточке заявки: оценка по банковской методике (отдельно от FinScore). В ЛК банка вкладка доступна всегда.',
+            'applicable_roles' => ['director', 'manager', 'case_manager', 'analyst'],
+        ],
         'structure.view' => [
             'label' => 'Структура — просмотр',
             'group' => 'Заявки',
@@ -145,6 +151,7 @@ function finbuild_access_default_matrix(): array
         $matrix['applications.assign'][$r] = true;
         $matrix['chat.access'][$r] = true;
         $matrix['banks.work'][$r] = true;
+        $matrix['methodology.view'][$r] = true;
         $matrix['structure.view'][$r] = true;
         $matrix['structure.edit'][$r] = true;
         $matrix['roadmap.view'][$r] = true;
@@ -157,10 +164,11 @@ function finbuild_access_default_matrix(): array
     $matrix['stats.monthly']['director'] = true;
     $matrix['access_rights.manage']['director'] = true;
 
-    // Менеджер по заявкам: чат, работа с банками и структура на просмотр; без дорожной карты и без идентичности владельца;
+    // Менеджер по заявкам: чат, работа с банками, методика и структура на просмотр; без дорожной карты и без идентичности владельца;
     // ФИО в чате для владельца/банка по умолчанию скрыто
     $matrix['chat.access']['case_manager'] = true;
     $matrix['banks.work']['case_manager'] = true;
+    $matrix['methodology.view']['case_manager'] = true;
     $matrix['structure.view']['case_manager'] = true;
 
     $matrix['applications.view_all']['analyst'] = true;
@@ -176,7 +184,7 @@ function finbuild_access_default_matrix(): array
 function finbuild_access_defaults(): array
 {
     return [
-        'version' => 8,
+        'version' => 9,
         'roles' => finbuild_access_default_role_meta(),
         'matrix' => finbuild_access_default_matrix(),
     ];
@@ -281,6 +289,7 @@ function finbuild_access_merge_config(array $defaults, array $stored): array
         'applications.assign',
         'chat.access',
         'banks.work',
+        'methodology.view',
         'admin.users',
         'admin.products',
         'stats.monthly',
@@ -299,7 +308,7 @@ function finbuild_access_merge_config(array $defaults, array $stored): array
     // Руководитель всегда может управлять правами и видеть все заявки
     $out['matrix']['access_rights.manage']['director'] = true;
     $out['matrix']['applications.view_all']['director'] = true;
-    $out['version'] = max(8, (int) ($out['version'] ?? 8));
+    $out['version'] = max(9, (int) ($out['version'] ?? 9));
     return $out;
 }
 
@@ -377,6 +386,12 @@ function finbuild_can_use_product_chat(?array $user = null): bool
 function finbuild_can_work_with_banks(?array $user = null): bool
 {
     return finbuild_can('banks.work', $user);
+}
+
+/** Вкладка «Методика» на карточке заявки (сотрудники). ЛК банка — отдельно, всегда. */
+function finbuild_can_view_methodology(?array $user = null): bool
+{
+    return finbuild_can('methodology.view', $user);
 }
 
 /**

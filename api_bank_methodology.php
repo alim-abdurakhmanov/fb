@@ -1,6 +1,7 @@
 <?php
 /**
- * API: оценка по банковской методике (ЛК банка).
+ * API: оценка по банковской методике.
+ * ЛК банка — всегда; сотрудники — при праве methodology.view.
  * Отдельно от FinScore.
  */
 declare(strict_types=1);
@@ -17,6 +18,54 @@ function bank_methodology_json(array $data): void
     exit;
 }
 
+/**
+ * Доступ к кейсу для методики: банк своего портала или сотрудник с methodology.view.
+ *
+ * @return array<string,mixed>|null
+ */
+function bank_methodology_assert_case_access(PDO $pdo, int $caseId, array $user): ?array
+{
+    if ($caseId <= 0) {
+        return null;
+    }
+
+    $role = (string) ($user['role'] ?? '');
+    $userId = (int) ($user['id'] ?? 0);
+
+    if ($role === 'bank') {
+        $bankCode = finbank_user_bank_code($pdo, $user);
+        if ($bankCode === null) {
+            return null;
+        }
+        return finbank_bank_submitted_case($pdo, $caseId, $bankCode);
+    }
+
+    if (!finbuild_can_view_methodology($user)) {
+        return null;
+    }
+
+    $stmt = $pdo->prepare(
+        'SELECT c.*, ap.application_id, ap.id AS application_product_id, ap.bank_name, ap.product_name, ap.product_type, ap.status AS product_status
+         FROM application_product_bank_cases c
+         INNER JOIN application_products ap ON ap.id = c.application_product_id
+         WHERE c.id = ?
+         LIMIT 1'
+    );
+    $stmt->execute([$caseId]);
+    $case = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$case) {
+        return null;
+    }
+
+    $applicationId = (int) ($case['application_id'] ?? 0);
+    $isAnalystFlag = function_exists('finbuild_user_is_analyst_flag') && finbuild_user_is_analyst_flag($user);
+    if ($applicationId <= 0 || !finbuild_can_access_application($pdo, $applicationId, $role, $userId, $isAnalystFlag)) {
+        return null;
+    }
+
+    return $case;
+}
+
 if (!isset($_SESSION['user_id']) || !finbuild_sync_session_user()) {
     bank_methodology_json(['success' => false, 'error' => 'Не авторизован']);
 }
@@ -24,23 +73,17 @@ if (!isset($_SESSION['user_id']) || !finbuild_sync_session_user()) {
 $pdo = getPDO();
 $userId = (int) $_SESSION['user_id'];
 $role = (string) ($_SESSION['role'] ?? '');
+$currentUser = getCurrentUser() ?: ['id' => $userId, 'role' => $role];
 $action = (string) ($_POST['action'] ?? $_GET['action'] ?? '');
 $caseId = (int) ($_POST['bank_case_id'] ?? $_GET['bank_case_id'] ?? 0);
 
-if ($role !== 'bank') {
-    bank_methodology_json(['success' => false, 'error' => 'Доступ только для сотрудников банка']);
-}
 if ($caseId <= 0) {
     bank_methodology_json(['success' => false, 'error' => 'Не указан кейс']);
 }
 
-$bankCode = finbank_user_bank_code($pdo, getCurrentUser());
-if ($bankCode === null) {
-    bank_methodology_json(['success' => false, 'error' => 'Нет доступа']);
-}
-$case = finbank_bank_submitted_case($pdo, $caseId, $bankCode);
+$case = bank_methodology_assert_case_access($pdo, $caseId, $currentUser);
 if (!$case) {
-    bank_methodology_json(['success' => false, 'error' => 'Кейс не найден']);
+    bank_methodology_json(['success' => false, 'error' => 'Нет доступа к кейсу']);
 }
 
 $applicationId = (int) ($case['application_id'] ?? 0);
@@ -84,6 +127,12 @@ try {
                 'inn' => (string) ($appRow['inn'] ?? ''),
                 'amount' => $appRow['amount'] ?? null,
                 'contract_price' => $appRow['contract_price'] ?? null,
+            ],
+            'bank_case' => [
+                'id' => $caseId,
+                'bank_name' => (string) ($case['bank_name'] ?? ''),
+                'product_name' => (string) ($case['product_name'] ?? ''),
+                'status' => (string) ($case['status'] ?? ''),
             ],
         ]);
     }
