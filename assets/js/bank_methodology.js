@@ -1,6 +1,5 @@
 /**
- * Оценка по банковской методике — UI в ЛК банка.
- * FinScore не затрагивается.
+ * Банковская методика — UI в ЛК банка и на карточке заявки.
  */
 (function (window) {
     'use strict';
@@ -38,14 +37,14 @@
         const root = document.getElementById(opts.rootId || 'bankMethodologyRoot');
         if (!root) return;
 
-        const nextCaseId = Number(opts.bankCaseId || 0);
-        // Повторный вызов на том же root — смена кейса без повторной подписки на вкладку
-        if (root._bmCtl && typeof root._bmCtl.setCaseId === 'function') {
-            root._bmCtl.setCaseId(nextCaseId);
+        const nextApplicationId = Number(opts.applicationId || opts.bankCaseId || 0);
+        // Повторный вызов на том же root — смена заявки без повторной подписки на вкладку
+        if (root._bmCtl && typeof root._bmCtl.setApplicationId === 'function') {
+            root._bmCtl.setApplicationId(nextApplicationId);
             return root._bmCtl;
         }
 
-        let caseId = nextCaseId;
+        let applicationId = nextApplicationId;
         let rules = null;
         let state = null;
         let evaluated = null;
@@ -56,13 +55,13 @@
 
         async function api(action, payload) {
             if (action === 'get') {
-                const url = 'api_bank_methodology.php?action=get&bank_case_id=' + encodeURIComponent(String(caseId));
+                const url = 'api_bank_methodology.php?action=get&application_id=' + encodeURIComponent(String(applicationId));
                 const r = await fetch(url, { credentials: 'same-origin' });
                 return r.json();
             }
             const body = new FormData();
             body.append('action', action);
-            body.append('bank_case_id', String(caseId));
+            body.append('application_id', String(applicationId));
             if (payload && payload.state) {
                 body.append('state', JSON.stringify(payload.state));
             }
@@ -367,8 +366,8 @@
             <div class="bm-wrap${locked ? ' is-locked' : ''}">
                 <div class="bm-hero">
                     <div>
-                        <h4>Оценка по методике банка</h4>
-                        <p>Отдельный контур от FinScore. Авторасчёт по шкалам методики + ручная корректировка параметров и баллов менеджером банка. Фиксация создаёт официальную версию по заявке.</p>
+                        <h4>Банковская методика</h4>
+                        <p>Авторасчёт по шкалам методики и ручная корректировка менеджером. Фиксация создаёт официальную версию по заявке.</p>
                     </div>
                     <div class="bm-actions">
                         ${actionsHtml}
@@ -577,10 +576,10 @@
         if (params.get('tab') === 'bankAppMethodology' || params.get('tab') === 'methodology') ensureLoad();
 
         const ctl = {
-            setCaseId: function (id) {
+            setApplicationId: function (id) {
                 const next = Number(id || 0);
-                if (next <= 0 || next === caseId) return;
-                caseId = next;
+                if (next <= 0 || next === applicationId) return;
+                applicationId = next;
                 dirty = false;
                 rules = null;
                 state = null;

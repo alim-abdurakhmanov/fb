@@ -569,36 +569,3 @@ function finbank_build_package_payload(
 
     return ['items' => $items, 'uploads' => $uploads];
 }
-
-/**
- * Кейсы «Работа с банком» по заявке (для вкладки «Методика» у сотрудников).
- *
- * @return list<array{id:int,status:string,bank_code:string,bank_name:string,product_name:string,product_type:string}>
- */
-function finbank_application_bank_cases_for_methodology(PDO $pdo, int $applicationId): array
-{
-    if ($applicationId <= 0) {
-        return [];
-    }
-    $stmt = $pdo->prepare(
-        'SELECT c.id, c.status, c.bank_code, ap.bank_name, ap.product_name, ap.product_type
-         FROM application_product_bank_cases c
-         INNER JOIN application_products ap ON ap.id = c.application_product_id
-         WHERE ap.application_id = ?
-         ORDER BY c.id DESC'
-    );
-    $stmt->execute([$applicationId]);
-    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
-    $out = [];
-    foreach ($rows as $row) {
-        $out[] = [
-            'id' => (int) $row['id'],
-            'status' => (string) ($row['status'] ?? ''),
-            'bank_code' => (string) ($row['bank_code'] ?? ''),
-            'bank_name' => (string) ($row['bank_name'] ?? ''),
-            'product_name' => (string) ($row['product_name'] ?? ''),
-            'product_type' => (string) ($row['product_type'] ?? ''),
-        ];
-    }
-    return $out;
-}
