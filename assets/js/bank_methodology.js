@@ -101,7 +101,7 @@
                 next.finance.inputs[k] = el.type === 'checkbox' ? el.checked : (el.value === '' ? null : el.value);
             });
             ['q1_seasonal_loss_explained', 'profitability_explained_zero', 'roe_explained_zero',
-                'missing_equity', 'no_current_liabilities', 'no_revenue'].forEach(function (k) {
+                'no_current_liabilities', 'no_revenue'].forEach(function (k) {
                 const el = root.querySelector('[data-bm-fin-flag="' + k + '"]');
                 if (el) next.finance.inputs[k] = !!el.checked;
             });
@@ -271,7 +271,7 @@
                 <div class="bm-inputs">
                     <div><label>Выручка</label><input data-bm-fin="revenue" inputmode="decimal" value="${esc(numOrEmpty(inputs.revenue))}"></div>
                     <div><label>Чистая прибыль</label><input data-bm-fin="net_profit" inputmode="decimal" value="${esc(numOrEmpty(inputs.net_profit))}"></div>
-                    <div><label>Собственные средства (СК)</label><input data-bm-fin="equity" inputmode="decimal" value="${esc(numOrEmpty(inputs.equity))}"></div>
+                    <div><label>Собственные средства (СК)</label><input data-bm-fin="equity" inputmode="decimal" placeholder="пусто или 0 — нет СК" value="${esc(numOrEmpty(inputs.equity))}"></div>
                     <div><label>Текущие активы (стр.6)</label><input data-bm-fin="current_assets" inputmode="decimal" value="${esc(numOrEmpty(inputs.current_assets))}"></div>
                     <div><label>Текущие обязательства</label><input data-bm-fin="current_liabilities" inputmode="decimal" value="${esc(numOrEmpty(inputs.current_liabilities))}"></div>
                     <div><label>Долгосрочные обязательства</label><input data-bm-fin="long_term_liabilities" inputmode="decimal" value="${esc(numOrEmpty(inputs.long_term_liabilities))}"></div>
@@ -290,7 +290,6 @@
                     </div>
                     <div class="bm-checks" style="grid-column:1/-1">
                         <label><input type="checkbox" data-bm-fin-flag="no_revenue" ${inputs.no_revenue ? 'checked' : ''}> Нет выручки</label>
-                        <label><input type="checkbox" data-bm-fin-flag="missing_equity" ${inputs.missing_equity ? 'checked' : ''}> Нет СК</label>
                         <label><input type="checkbox" data-bm-fin-flag="no_current_liabilities" ${inputs.no_current_liabilities ? 'checked' : ''}> Нет текущих обязательств</label>
                         <label><input type="checkbox" data-bm-fin-flag="profitability_explained_zero" ${inputs.profitability_explained_zero ? 'checked' : ''}> Рент. 0% с объяснением</label>
                         <label><input type="checkbox" data-bm-fin-flag="roe_explained_zero" ${inputs.roe_explained_zero ? 'checked' : ''}> ROE 0% с объяснением</label>
