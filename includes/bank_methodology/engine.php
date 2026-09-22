@@ -371,17 +371,16 @@ function bank_methodology_compute_ratios(array $inputs): array
     $debtRatioManual = bank_methodology_num($inputs['debt_to_revenue'] ?? null);
 
     // Общая рентабельность
+    // Пустая/нулевая выручка = отсутствие выручки (галочка «Нет выручки» не нужна).
     $tpMetric = $rules['finance_metrics']['total_profitability'];
     $tpValue = null;
     $tpScore = null;
     $tpNote = '';
-    if (!empty($inputs['no_revenue'])) {
+    $revenueMissing = ($revenue === null || abs((float) $revenue) < 0.00001);
+    if ($revenueMissing) {
         $tpScore = -4.0;
         $tpNote = 'Отсутствие выручки';
-    } elseif ($revenue !== null && abs($revenue) < 0.00001) {
-        $tpScore = -4.0;
-        $tpNote = 'Отсутствие выручки';
-    } elseif ($revenue !== null && $profit !== null) {
+    } elseif ($profit !== null) {
         $tpValue = ($profit / $revenue) * 100.0;
         if (abs($tpValue) < 0.00001 && !empty($inputs['profitability_explained_zero'])) {
             $tpScore = (float) ($tpMetric['explained_zero_score'] ?? 0);
@@ -423,17 +422,16 @@ function bank_methodology_compute_ratios(array $inputs): array
     $out['roe'] = ['value' => $roeValue, 'score' => $roeScore, 'note' => $roeNote];
 
     // Ликвидность
+    // Пустые/нулевые текущие обязательства = их отсутствие (галочка не нужна).
     $liqMetric = $rules['finance_metrics']['current_liquidity'];
     $liqValue = null;
     $liqScore = null;
     $liqNote = '';
-    if (!empty($inputs['no_current_liabilities']) || ($cl !== null && abs($cl) < 0.00001)) {
+    $clMissing = ($cl === null || abs((float) $cl) < 0.00001);
+    if ($clMissing) {
         $liqScore = (float) ($liqMetric['no_current_liabilities_score'] ?? 6);
         $liqNote = 'Отсутствие текущих обязательств';
-        if ($ca !== null && $cl !== null && abs($cl) > 0.00001) {
-            $liqValue = $ca / $cl;
-        }
-    } elseif ($ca !== null && $cl !== null && abs($cl) > 0.00001) {
+    } elseif ($ca !== null && abs((float) $cl) > 0.00001) {
         $liqValue = $ca / $cl;
         $liqScore = bank_methodology_band_score($liqValue, $liqMetric['bands'], 'default');
     }
@@ -483,7 +481,7 @@ function bank_methodology_compute_ratios(array $inputs): array
     if (in_array($industry, ['leasing', 'factoring'], true) && !empty($debtMetric['alt_industry'])) {
         $bands = $debtMetric['alt_industry']['bands'];
     }
-    if (!empty($inputs['no_revenue']) || ($revenue !== null && abs($revenue) < 0.00001)) {
+    if ($revenueMissing) {
         $debtScore = (float) ($debtMetric['no_revenue_score'] ?? -6);
         $debtNote = 'Отсутствие выручки';
     } elseif ($debtValue === null && $revenue !== null && abs($revenue) > 0.00001
