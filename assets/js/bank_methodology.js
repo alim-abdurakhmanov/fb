@@ -324,11 +324,11 @@
             const locked = isLocked();
             const finInputsHtml = `
                 <div class="bm-inputs">
-                    <div><label>Выручка, руб</label><input data-bm-fin="revenue" inputmode="decimal" placeholder="пусто или 0 — нет выручки" value="${esc(numOrEmpty(inputs.revenue))}"></div>
+                    <div><label>Выручка, руб</label><input data-bm-fin="revenue" inputmode="decimal" placeholder="0 — нет выручки" value="${esc(numOrEmpty(inputs.revenue))}"></div>
                     <div><label>Чистая прибыль, руб</label><input data-bm-fin="net_profit" inputmode="decimal" value="${esc(numOrEmpty(inputs.net_profit))}"></div>
-                    <div><label>Собственные средства (СК), руб</label><input data-bm-fin="equity" inputmode="decimal" placeholder="пусто или 0 — нет СК" value="${esc(numOrEmpty(inputs.equity))}"></div>
+                    <div><label>Собственные средства (СК), руб</label><input data-bm-fin="equity" inputmode="decimal" placeholder="0 — нет СК" value="${esc(numOrEmpty(inputs.equity))}"></div>
                     <div><label>Текущие активы, руб</label><input data-bm-fin="current_assets" inputmode="decimal" value="${esc(numOrEmpty(inputs.current_assets))}"></div>
-                    <div><label>Текущие обязательства, руб</label><input data-bm-fin="current_liabilities" inputmode="decimal" placeholder="пусто или 0 — нет обязательств" value="${esc(numOrEmpty(inputs.current_liabilities))}"></div>
+                    <div><label>Текущие обязательства, руб</label><input data-bm-fin="current_liabilities" inputmode="decimal" placeholder="0 — нет обязательств" value="${esc(numOrEmpty(inputs.current_liabilities))}"></div>
                     <div><label>Долгосрочные обязательства, руб</label><input data-bm-fin="long_term_liabilities" inputmode="decimal" value="${esc(numOrEmpty(inputs.long_term_liabilities))}"></div>
                     <div><label>Валюта баланса (итог), руб</label><input data-bm-fin="balance_total" inputmode="decimal" value="${esc(numOrEmpty(inputs.balance_total))}"></div>
                     <div><label>Краткосрочные займы, руб</label><input data-bm-fin="short_term_borrowings" inputmode="decimal" value="${esc(numOrEmpty(inputs.short_term_borrowings))}"></div>
