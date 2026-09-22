@@ -92,7 +92,7 @@
             // finance inputs
             const finKeys = [
                 'revenue', 'net_profit', 'equity', 'current_assets', 'current_liabilities',
-                'long_term_liabilities', 'balance_total', 'debt_to_revenue', 'industry',
+                'long_term_liabilities', 'balance_total', 'industry',
                 'short_term_borrowings', 'long_term_borrowings', 'accounts_payable', 'other_short_liabilities'
             ];
             finKeys.forEach(function (k) {
@@ -100,6 +100,7 @@
                 if (!el) return;
                 next.finance.inputs[k] = el.type === 'checkbox' ? el.checked : (el.value === '' ? null : el.value);
             });
+            next.finance.inputs.debt_to_revenue = null;
             ['q1_seasonal_loss_explained'].forEach(function (k) {
                 const el = root.querySelector('[data-bm-fin-flag="' + k + '"]');
                 next.finance.inputs[k] = !!(el && el.checked);
@@ -192,23 +193,23 @@
             const ratingText = incomplete ? '—' : (r.rating || '—');
             const posText = r.position_label || '';
             box.innerHTML = `
-                <div class="bm-kpi">
+                <div class="bm-kpi bm-kpi-score">
                     <div class="label">Финансы</div>
-                    <div class="value">${esc(fmtScore(r.finance_score))} <span class="sub">/ 50</span></div>
+                    <div class="value">${esc(fmtScore(r.finance_score))}<span class="denom">/50</span></div>
                 </div>
-                <div class="bm-kpi">
+                <div class="bm-kpi bm-kpi-score">
                     <div class="label">Бизнес-риск</div>
-                    <div class="value">${esc(fmtScore(r.business_score))} <span class="sub">/ 50</span></div>
+                    <div class="value">${esc(fmtScore(r.business_score))}<span class="denom">/50</span></div>
                 </div>
-                <div class="bm-kpi">
+                <div class="bm-kpi bm-kpi-total">
                     <div class="label">Итого</div>
-                    <div class="value">${esc(fmtScore(r.total_score))} <span class="sub">/ 100</span></div>
-                    <div class="sub">версия ${assessment ? assessment.version : '—'} · <span class="bm-status-chip ${esc(status)}">${esc(statusLabel)}</span></div>
+                    <div class="value">${esc(fmtScore(r.total_score))}<span class="denom">/100</span></div>
+                    <div class="meta">v${assessment ? assessment.version : '—'} · <span class="bm-status-chip ${esc(status)}">${esc(statusLabel)}</span></div>
                 </div>
-                <div class="bm-kpi">
+                <div class="bm-kpi bm-kpi-rating ${posClass}">
                     <div class="label">Рейтинг</div>
-                    <div class="value ${posClass}">${esc(ratingText)}</div>
-                    <div class="sub ${posClass}">${esc(posText)}${r.hard_stop ? ' · обязательный стоп' : ''}</div>
+                    <div class="value">${esc(ratingText)}</div>
+                    <div class="meta">${esc(posText)}${r.hard_stop ? ' · стоп' : ''}</div>
                 </div>`;
         }
 
@@ -225,7 +226,7 @@
             }
             if (r.hard_stop) {
                 const list = (r.mandatory_stops || []).map(function (s) {
-                    return '<li><strong>' + esc(s.code) + '</strong> — ' + esc(s.label)
+                    return '<li>' + esc(s.label)
                         + (s.comment ? ' <span class="text-muted">(' + esc(s.comment) + ')</span>' : '')
                         + '</li>';
                 }).join('');
@@ -233,7 +234,7 @@
             }
             if ((r.conditional_stops || []).length) {
                 const list = (r.conditional_stops || []).map(function (s) {
-                    return '<li><strong>' + esc(s.code) + '</strong> — ' + esc(s.label)
+                    return '<li>' + esc(s.label)
                         + (s.comment ? ' <span class="text-muted">(' + esc(s.comment) + ')</span>' : '')
                         + '</li>';
                 }).join('');
@@ -267,17 +268,6 @@
                     if (m.note) parts.push(m.note);
                     note.textContent = parts.join(' · ');
                 }
-                if (id === 'debt_to_revenue') {
-                    const debtInput = root.querySelector('[data-bm-fin="debt_to_revenue"]');
-                    if (debtInput && document.activeElement !== debtInput) {
-                        const hasManual = String(debtInput.value).trim() !== '';
-                        if (!hasManual && m.value != null && m.value !== '') {
-                            debtInput.placeholder = 'авто: ' + fmtScore(m.value);
-                        } else {
-                            debtInput.placeholder = 'авто — из полей выше';
-                        }
-                    }
-                }
             });
 
             function isZeroPct(v) {
@@ -310,24 +300,38 @@
 
         function renderAll() {
             if (!rules || !state) return;
-            const stopHtml = (rules.stop_factors || []).map(function (sf) {
-                const row = (state.stop_factors || []).find(function (x) { return x.code === sf.code; }) || {};
-                const on = !!row.triggered;
-                const cond = !sf.mandatory;
-                const id = 'bm-stop-' + String(sf.code).replace(/[^a-zA-Z0-9_-]/g, '_');
-                return `
-                <div class="bm-stop-item ${on ? 'is-on' : ''} ${cond ? 'is-conditional' : ''}">
-                    <label class="bm-stop-head" for="${esc(id)}">
-                        <input id="${esc(id)}" type="checkbox" data-bm-stop="${esc(sf.code)}" ${on ? 'checked' : ''}>
-                        <span class="bm-stop-main">
+            const stopGroupLabels = rules.stop_groups || {};
+            const stopByGroup = {};
+            (rules.stop_factors || []).forEach(function (sf) {
+                const g = sf.group || 'other';
+                if (!stopByGroup[g]) stopByGroup[g] = [];
+                stopByGroup[g].push(sf);
+            });
+            const stopGroupOrder = Object.keys(stopGroupLabels).length
+                ? Object.keys(stopGroupLabels)
+                : Object.keys(stopByGroup);
+            const stopHtml = stopGroupOrder.map(function (groupId) {
+                const items = stopByGroup[groupId];
+                if (!items || !items.length) return '';
+                const title = stopGroupLabels[groupId] || groupId;
+                const cards = items.map(function (sf) {
+                    const row = (state.stop_factors || []).find(function (x) { return x.code === sf.code; }) || {};
+                    const on = !!row.triggered;
+                    const cond = !sf.mandatory;
+                    const id = 'bm-stop-' + String(sf.code).replace(/[^a-zA-Z0-9_-]/g, '_');
+                    return `
+                    <div class="bm-stop-item ${on ? 'is-on' : ''} ${cond ? 'is-conditional' : ''}">
+                        <label class="bm-stop-head" for="${esc(id)}">
+                            <input id="${esc(id)}" type="checkbox" data-bm-stop="${esc(sf.code)}" ${on ? 'checked' : ''}>
                             <span class="title">${esc(sf.label)}</span>
-                            <span class="bm-stop-meta">
-                                <span class="bm-stop-code">${esc(sf.code)}</span>
-                                <span class="bm-stop-kind ${cond ? 'cond' : 'must'}">${cond ? 'условный' : 'обязательный'}</span>
-                            </span>
-                        </span>
-                    </label>
-                    <textarea data-bm-stop-comment="${esc(sf.code)}" rows="2" placeholder="Комментарий">${esc(row.comment || '')}</textarea>
+                        </label>
+                        <textarea data-bm-stop-comment="${esc(sf.code)}" rows="2" placeholder="Комментарий">${esc(row.comment || '')}</textarea>
+                    </div>`;
+                }).join('');
+                return `
+                <div class="bm-stop-group">
+                    <h6 class="bm-stop-group-title">${esc(title)}</h6>
+                    <div class="bm-stop-grid">${cards}</div>
                 </div>`;
             }).join('');
 
@@ -374,20 +378,12 @@
                         <label><input type="checkbox" data-bm-fin-flag="roe_explained_zero" ${inputs.roe_explained_zero ? 'checked' : ''}> 0% с объяснением</label>
                     </div>`;
                 }
-                let valueField = '';
-                if (id === 'debt_to_revenue') {
-                    valueField = `<div class="mt-2">
-                        <label>Коэффициент</label>
-                        <input data-bm-fin="debt_to_revenue" inputmode="decimal" placeholder="авто — из полей выше" value="${esc(numOrEmpty(inputs.debt_to_revenue))}">
-                    </div>`;
-                }
                 return `
                 <div class="bm-metric">
                     <div>
                         <div class="name">${esc(m.label)}</div>
                         <div class="hint" data-bm-fin-note="${esc(id)}"></div>
                         ${zeroExplain}
-                        ${valueField}
                     </div>
                     <div>
                         <label>Ручной балл</label>
@@ -436,11 +432,10 @@
             }).join(' · ');
 
             const actionsHtml = locked
-                ? `<button type="button" class="btn btn-primary btn-sm" data-bm-action="newdraft"><i class="bi bi-plus-lg me-1"></i>Новый черновик</button>`
+                ? `<button type="button" class="btn btn-primary btn-sm" data-bm-action="newdraft" title="Создать редактируемую версию на базе зафиксированной"><i class="bi bi-plus-lg me-1"></i>Новый черновик</button>`
                 : `<button type="button" class="btn btn-outline-secondary btn-sm" data-bm-action="recalc"><i class="bi bi-arrow-repeat me-1"></i>Пересчитать</button>
                         <button type="button" class="btn btn-outline-primary btn-sm" data-bm-action="save"><i class="bi bi-save me-1"></i>Сохранить черновик</button>
-                        <button type="button" class="btn btn-primary btn-sm" data-bm-action="finalize"><i class="bi bi-check2-circle me-1"></i>Зафиксировать</button>
-                        <button type="button" class="btn btn-outline-dark btn-sm" data-bm-action="newdraft"><i class="bi bi-plus-lg me-1"></i>Новый черновик</button>`;
+                        <button type="button" class="btn btn-primary btn-sm" data-bm-action="finalize"><i class="bi bi-check2-circle me-1"></i>Зафиксировать</button>`;
 
             root.innerHTML = `
             <div class="bm-wrap${locked ? ' is-locked' : ''}">
@@ -458,7 +453,7 @@
 
                 <div class="bm-section" data-bm-section="stops">
                     <div class="bm-section-head"><h5>1. Стоп-факторы</h5><span class="meta">обязательные и условные</span></div>
-                    <div class="bm-section-body"><div class="bm-stop-grid">${stopHtml}</div></div>
+                    <div class="bm-section-body"><div class="bm-stop-groups">${stopHtml}</div></div>
                 </div>
 
                 <div class="bm-section" data-bm-section="finance">
@@ -595,6 +590,11 @@
                         return;
                     }
                     if (name === 'newdraft') {
+                        if (!isLocked()) {
+                            notify('Новый черновик нужен только после фиксации — чтобы править уже утверждённую версию.', 'info');
+                            return;
+                        }
+                        if (!window.confirm('Создать новый черновик на базе зафиксированной оценки? Текущая версия останется в истории.')) return;
                         const data = await api('new_draft', {});
                         if (!data.success) throw new Error(data.error || 'Ошибка');
                         assessment = data.assessment;
