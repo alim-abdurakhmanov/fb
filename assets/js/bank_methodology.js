@@ -267,6 +267,17 @@
                     if (m.note) parts.push(m.note);
                     note.textContent = parts.join(' · ');
                 }
+                if (id === 'debt_to_revenue') {
+                    const debtInput = root.querySelector('[data-bm-fin="debt_to_revenue"]');
+                    if (debtInput && document.activeElement !== debtInput) {
+                        const hasManual = String(debtInput.value).trim() !== '';
+                        if (!hasManual && m.value != null && m.value !== '') {
+                            debtInput.placeholder = 'авто: ' + fmtScore(m.value);
+                        } else {
+                            debtInput.placeholder = 'авто — из полей выше';
+                        }
+                    }
+                }
             });
 
             function isZeroPct(v) {
@@ -295,22 +306,6 @@
                 pill.textContent = fmtScore(m.score) + ' / ' + m.max;
                 pill.className = 'score-pill' + (m.source === 'edited' ? ' edited' : (m.source === 'pending' ? ' pending' : ''));
             });
-
-            const debtCalc = root.querySelector('[data-bm-debt-calc]');
-            if (debtCalc) {
-                const manual = root.querySelector('[data-bm-fin="debt_to_revenue"]');
-                const hasManual = !!(manual && String(manual.value).trim() !== '');
-                const m = fin.debt_to_revenue || {};
-                if (hasManual) {
-                    debtCalc.textContent = 'Сейчас используется коэффициент, введённый вручную';
-                } else if (m.value != null && m.value !== '') {
-                    debtCalc.textContent = 'Рассчитано автоматически: ' + fmtScore(m.value);
-                } else if (m.note) {
-                    debtCalc.textContent = m.note;
-                } else {
-                    debtCalc.textContent = 'Авторасчёт появится после заполнения выручки, займов, кредиторки, прочих краткосрочных и текущих активов';
-                }
-            }
         }
 
         function renderAll() {
@@ -351,11 +346,6 @@
                     <div><label>Кредиторская задолженность, руб</label><input data-bm-fin="accounts_payable" inputmode="decimal" value="${esc(numOrEmpty(inputs.accounts_payable))}"></div>
                     <div><label>Прочие краткосрочные обязательства, руб</label><input data-bm-fin="other_short_liabilities" inputmode="decimal" value="${esc(numOrEmpty(inputs.other_short_liabilities))}"></div>
                     <div><label>Долгосрочные займы, руб</label><input data-bm-fin="long_term_borrowings" inputmode="decimal" value="${esc(numOrEmpty(inputs.long_term_borrowings))}"></div>
-                    <div>
-                        <label>Отношение долга к выручке, коэф.</label>
-                        <input data-bm-fin="debt_to_revenue" inputmode="decimal" placeholder="необязательно — иначе посчитаем сами" value="${esc(numOrEmpty(inputs.debt_to_revenue))}">
-                        <div class="small text-muted mt-1" data-bm-debt-calc>Авторасчёт появится после заполнения выручки, займов, кредиторки, прочих краткосрочных и текущих активов</div>
-                    </div>
                     <div><label>Отрасль</label>
                         <select data-bm-fin="industry">
                             <option value="default" ${inputs.industry === 'default' || !inputs.industry ? 'selected' : ''}>Обычная</option>
@@ -367,12 +357,6 @@
                         <label>&nbsp;</label>
                         <label class="bm-inline-check"><input type="checkbox" data-bm-fin-flag="q1_seasonal_loss_explained" ${inputs.q1_seasonal_loss_explained ? 'checked' : ''}> Убыток 1 кв. (сезонность)</label>
                     </div>
-                    <p class="small text-muted mb-0" style="grid-column:1/-1">
-                        Отношение долга к выручке считается так:
-                        разница = кредиторская + прочие краткосрочные − текущие активы;
-                        если разница ≤ 0 → (краткосрочные займы + долгосрочные займы) / выручка;
-                        если разница &gt; 0 → (краткосрочные займы + долгосрочные займы + разница) / выручка.
-                    </p>
                 </div>`;
 
             const finMetrics = rules.finance_metrics || {};
@@ -390,12 +374,21 @@
                         <label><input type="checkbox" data-bm-fin-flag="roe_explained_zero" ${inputs.roe_explained_zero ? 'checked' : ''}> 0% с объяснением</label>
                     </div>`;
                 }
+                let valueField = '';
+                if (id === 'debt_to_revenue') {
+                    valueField = `<div class="mt-2">
+                        <label>Коэффициент</label>
+                        <input data-bm-fin="debt_to_revenue" inputmode="decimal" placeholder="авто — из полей выше" value="${esc(numOrEmpty(inputs.debt_to_revenue))}">
+                        <div class="hint mt-1">Можно поправить вручную. Авто: разница = кредиторка + прочие кр. − текущие активы; затем (займы ± разница) / выручка.</div>
+                    </div>`;
+                }
                 return `
                 <div class="bm-metric">
                     <div>
                         <div class="name">${esc(m.label)}</div>
                         <div class="hint" data-bm-fin-note="${esc(id)}"></div>
                         ${zeroExplain}
+                        ${valueField}
                     </div>
                     <div>
                         <label>Ручной балл</label>
