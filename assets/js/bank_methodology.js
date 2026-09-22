@@ -347,8 +347,9 @@
                             <option value="factoring" ${inputs.industry === 'factoring' ? 'selected' : ''}>Факторинг</option>
                         </select>
                     </div>
-                    <div class="bm-checks" style="grid-column:1/-1">
-                        <label><input type="checkbox" data-bm-fin-flag="q1_seasonal_loss_explained" ${inputs.q1_seasonal_loss_explained ? 'checked' : ''}> Убыток 1 кв. (сезонность)</label>
+                    <div>
+                        <label>&nbsp;</label>
+                        <label class="bm-inline-check"><input type="checkbox" data-bm-fin-flag="q1_seasonal_loss_explained" ${inputs.q1_seasonal_loss_explained ? 'checked' : ''}> Убыток 1 кв. (сезонность)</label>
                     </div>
                     <p class="small text-muted mb-0" style="grid-column:1/-1">
                         Отношение долга к выручке считается так:
