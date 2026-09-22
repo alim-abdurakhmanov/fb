@@ -100,11 +100,23 @@
                 if (!el) return;
                 next.finance.inputs[k] = el.type === 'checkbox' ? el.checked : (el.value === '' ? null : el.value);
             });
-            ['q1_seasonal_loss_explained', 'profitability_explained_zero', 'roe_explained_zero',
-                'missing_equity', 'no_current_liabilities', 'no_revenue'].forEach(function (k) {
+            ['q1_seasonal_loss_explained'].forEach(function (k) {
                 const el = root.querySelector('[data-bm-fin-flag="' + k + '"]');
-                if (el) next.finance.inputs[k] = !!el.checked;
+                next.finance.inputs[k] = !!(el && el.checked);
             });
+            // Галочки «0% с объяснением» учитываем только если показаны у метрики
+            next.finance.inputs.profitability_explained_zero = false;
+            next.finance.inputs.roe_explained_zero = false;
+            const tpExplain = root.querySelector('[data-bm-zero-explain="total_profitability"]');
+            if (tpExplain && !tpExplain.hidden) {
+                const el = tpExplain.querySelector('[data-bm-fin-flag="profitability_explained_zero"]');
+                next.finance.inputs.profitability_explained_zero = !!(el && el.checked);
+            }
+            const roeExplain = root.querySelector('[data-bm-zero-explain="roe"]');
+            if (roeExplain && !roeExplain.hidden) {
+                const el = roeExplain.querySelector('[data-bm-fin-flag="roe_explained_zero"]');
+                next.finance.inputs.roe_explained_zero = !!(el && el.checked);
+            }
 
             // finance score overrides
             next.finance.score_overrides = next.finance.score_overrides || {};
@@ -236,8 +248,35 @@
                 pill.textContent = fmtScore(m.score) + ' / ' + m.max;
                 pill.className = 'score-pill' + (m.source === 'edited' ? ' edited' : (m.source === 'pending' ? ' pending' : ''));
                 const note = root.querySelector('[data-bm-fin-note="' + id + '"]');
-                if (note) note.textContent = m.note || (m.value != null ? ('Значение: ' + fmtScore(m.value)) : '');
+                if (note) {
+                    const parts = [];
+                    if (m.value != null && m.value !== '') {
+                        const unit = m.unit === '%' ? '%' : '';
+                        parts.push('Значение: ' + fmtScore(m.value) + unit);
+                    }
+                    if (m.note) parts.push(m.note);
+                    note.textContent = parts.join(' · ');
+                }
             });
+
+            function isZeroPct(v) {
+                return v != null && v !== '' && !Number.isNaN(Number(v)) && Math.abs(Number(v)) < 0.00001;
+            }
+            [
+                { id: 'total_profitability', flag: 'profitability_explained_zero' },
+                { id: 'roe', flag: 'roe_explained_zero' }
+            ].forEach(function (item) {
+                const wrap = root.querySelector('[data-bm-zero-explain="' + item.id + '"]');
+                if (!wrap) return;
+                const m = fin[item.id] || {};
+                const show = isZeroPct(m.value);
+                wrap.hidden = !show;
+                if (!show) {
+                    const cb = wrap.querySelector('[data-bm-fin-flag="' + item.flag + '"]');
+                    if (cb) cb.checked = false;
+                }
+            });
+
             const biz = (evaluated.business && evaluated.business.metrics) || {};
             Object.keys(biz).forEach(function (id) {
                 const pill = root.querySelector('[data-bm-biz-pill="' + id + '"]');
@@ -246,6 +285,22 @@
                 pill.textContent = fmtScore(m.score) + ' / ' + m.max;
                 pill.className = 'score-pill' + (m.source === 'edited' ? ' edited' : (m.source === 'pending' ? ' pending' : ''));
             });
+
+            const debtCalc = root.querySelector('[data-bm-debt-calc]');
+            if (debtCalc) {
+                const manual = root.querySelector('[data-bm-fin="debt_to_revenue"]');
+                const hasManual = !!(manual && String(manual.value).trim() !== '');
+                const m = fin.debt_to_revenue || {};
+                if (hasManual) {
+                    debtCalc.textContent = 'Сейчас используется коэффициент, введённый вручную';
+                } else if (m.value != null && m.value !== '') {
+                    debtCalc.textContent = 'Рассчитано автоматически: ' + fmtScore(m.value);
+                } else if (m.note) {
+                    debtCalc.textContent = m.note;
+                } else {
+                    debtCalc.textContent = 'Авторасчёт появится после заполнения выручки, займов, кредиторки, прочих краткосрочных и текущих активов';
+                }
+            }
         }
 
         function renderAll() {
@@ -269,18 +324,22 @@
             const locked = isLocked();
             const finInputsHtml = `
                 <div class="bm-inputs">
-                    <div><label>Выручка</label><input data-bm-fin="revenue" inputmode="decimal" value="${esc(numOrEmpty(inputs.revenue))}"></div>
-                    <div><label>Чистая прибыль</label><input data-bm-fin="net_profit" inputmode="decimal" value="${esc(numOrEmpty(inputs.net_profit))}"></div>
-                    <div><label>Собственные средства (СК)</label><input data-bm-fin="equity" inputmode="decimal" value="${esc(numOrEmpty(inputs.equity))}"></div>
-                    <div><label>Текущие активы (стр.6)</label><input data-bm-fin="current_assets" inputmode="decimal" value="${esc(numOrEmpty(inputs.current_assets))}"></div>
-                    <div><label>Текущие обязательства</label><input data-bm-fin="current_liabilities" inputmode="decimal" value="${esc(numOrEmpty(inputs.current_liabilities))}"></div>
-                    <div><label>Долгосрочные обязательства</label><input data-bm-fin="long_term_liabilities" inputmode="decimal" value="${esc(numOrEmpty(inputs.long_term_liabilities))}"></div>
-                    <div><label>Валюта баланса</label><input data-bm-fin="balance_total" inputmode="decimal" value="${esc(numOrEmpty(inputs.balance_total))}"></div>
-                    <div><label>Краткосрочные займы (стр.14 / 1510)</label><input data-bm-fin="short_term_borrowings" inputmode="decimal" value="${esc(numOrEmpty(inputs.short_term_borrowings))}"></div>
-                    <div><label>Кредиторская задолженность (стр.15 / 1520)</label><input data-bm-fin="accounts_payable" inputmode="decimal" value="${esc(numOrEmpty(inputs.accounts_payable))}"></div>
-                    <div><label>Прочие кр. обязательства (стр.19 / 1540+1550)</label><input data-bm-fin="other_short_liabilities" inputmode="decimal" value="${esc(numOrEmpty(inputs.other_short_liabilities))}"></div>
-                    <div><label>Долгосрочные займы (стр.24 / 1410)</label><input data-bm-fin="long_term_borrowings" inputmode="decimal" value="${esc(numOrEmpty(inputs.long_term_borrowings))}"></div>
-                    <div><label>Долг / выручка (коэф., вручную)</label><input data-bm-fin="debt_to_revenue" inputmode="decimal" placeholder="или по формуле из стр.14–24" value="${esc(numOrEmpty(inputs.debt_to_revenue))}"></div>
+                    <div><label>Выручка, руб</label><input data-bm-fin="revenue" inputmode="decimal" placeholder="пусто или 0 — нет выручки" value="${esc(numOrEmpty(inputs.revenue))}"></div>
+                    <div><label>Чистая прибыль, руб</label><input data-bm-fin="net_profit" inputmode="decimal" value="${esc(numOrEmpty(inputs.net_profit))}"></div>
+                    <div><label>Собственные средства (СК), руб</label><input data-bm-fin="equity" inputmode="decimal" placeholder="пусто или 0 — нет СК" value="${esc(numOrEmpty(inputs.equity))}"></div>
+                    <div><label>Текущие активы, руб</label><input data-bm-fin="current_assets" inputmode="decimal" value="${esc(numOrEmpty(inputs.current_assets))}"></div>
+                    <div><label>Текущие обязательства, руб</label><input data-bm-fin="current_liabilities" inputmode="decimal" placeholder="пусто или 0 — нет обязательств" value="${esc(numOrEmpty(inputs.current_liabilities))}"></div>
+                    <div><label>Долгосрочные обязательства, руб</label><input data-bm-fin="long_term_liabilities" inputmode="decimal" value="${esc(numOrEmpty(inputs.long_term_liabilities))}"></div>
+                    <div><label>Валюта баланса (итог), руб</label><input data-bm-fin="balance_total" inputmode="decimal" value="${esc(numOrEmpty(inputs.balance_total))}"></div>
+                    <div><label>Краткосрочные займы, руб</label><input data-bm-fin="short_term_borrowings" inputmode="decimal" value="${esc(numOrEmpty(inputs.short_term_borrowings))}"></div>
+                    <div><label>Кредиторская задолженность, руб</label><input data-bm-fin="accounts_payable" inputmode="decimal" value="${esc(numOrEmpty(inputs.accounts_payable))}"></div>
+                    <div><label>Прочие краткосрочные обязательства, руб</label><input data-bm-fin="other_short_liabilities" inputmode="decimal" value="${esc(numOrEmpty(inputs.other_short_liabilities))}"></div>
+                    <div><label>Долгосрочные займы, руб</label><input data-bm-fin="long_term_borrowings" inputmode="decimal" value="${esc(numOrEmpty(inputs.long_term_borrowings))}"></div>
+                    <div>
+                        <label>Отношение долга к выручке, коэф.</label>
+                        <input data-bm-fin="debt_to_revenue" inputmode="decimal" placeholder="необязательно — иначе посчитаем сами" value="${esc(numOrEmpty(inputs.debt_to_revenue))}">
+                        <div class="small text-muted mt-1" data-bm-debt-calc>Авторасчёт появится после заполнения выручки, займов, кредиторки, прочих краткосрочных и текущих активов</div>
+                    </div>
                     <div><label>Отрасль</label>
                         <select data-bm-fin="industry">
                             <option value="default" ${inputs.industry === 'default' || !inputs.industry ? 'selected' : ''}>Обычная</option>
@@ -289,13 +348,14 @@
                         </select>
                     </div>
                     <div class="bm-checks" style="grid-column:1/-1">
-                        <label><input type="checkbox" data-bm-fin-flag="no_revenue" ${inputs.no_revenue ? 'checked' : ''}> Нет выручки</label>
-                        <label><input type="checkbox" data-bm-fin-flag="missing_equity" ${inputs.missing_equity ? 'checked' : ''}> Нет СК</label>
-                        <label><input type="checkbox" data-bm-fin-flag="no_current_liabilities" ${inputs.no_current_liabilities ? 'checked' : ''}> Нет текущих обязательств</label>
-                        <label><input type="checkbox" data-bm-fin-flag="profitability_explained_zero" ${inputs.profitability_explained_zero ? 'checked' : ''}> Рент. 0% с объяснением</label>
-                        <label><input type="checkbox" data-bm-fin-flag="roe_explained_zero" ${inputs.roe_explained_zero ? 'checked' : ''}> ROE 0% с объяснением</label>
                         <label><input type="checkbox" data-bm-fin-flag="q1_seasonal_loss_explained" ${inputs.q1_seasonal_loss_explained ? 'checked' : ''}> Убыток 1 кв. (сезонность)</label>
                     </div>
+                    <p class="small text-muted mb-0" style="grid-column:1/-1">
+                        Отношение долга к выручке считается так:
+                        разница = кредиторская + прочие краткосрочные − текущие активы;
+                        если разница ≤ 0 → (краткосрочные займы + долгосрочные займы) / выручка;
+                        если разница &gt; 0 → (краткосрочные займы + долгосрочные займы + разница) / выручка.
+                    </p>
                 </div>`;
 
             const finMetrics = rules.finance_metrics || {};
@@ -303,14 +363,25 @@
             const finMetricsHtml = Object.keys(finMetrics).map(function (id) {
                 const m = finMetrics[id];
                 const ov = overrides[id];
+                let zeroExplain = '';
+                if (id === 'total_profitability') {
+                    zeroExplain = `<div class="bm-checks mt-1" data-bm-zero-explain="total_profitability" hidden>
+                        <label><input type="checkbox" data-bm-fin-flag="profitability_explained_zero" ${inputs.profitability_explained_zero ? 'checked' : ''}> 0% с объяснением</label>
+                    </div>`;
+                } else if (id === 'roe') {
+                    zeroExplain = `<div class="bm-checks mt-1" data-bm-zero-explain="roe" hidden>
+                        <label><input type="checkbox" data-bm-fin-flag="roe_explained_zero" ${inputs.roe_explained_zero ? 'checked' : ''}> 0% с объяснением</label>
+                    </div>`;
+                }
                 return `
                 <div class="bm-metric">
                     <div>
                         <div class="name">${esc(m.label)}</div>
                         <div class="hint" data-bm-fin-note="${esc(id)}"></div>
+                        ${zeroExplain}
                     </div>
                     <div>
-                        <label>Ручной балл (override)</label>
+                        <label>Ручной балл</label>
                         <input data-bm-fin-score="${esc(id)}" inputmode="decimal" placeholder="авто" value="${esc(numOrEmpty(ov))}">
                     </div>
                     <div>
@@ -340,7 +411,7 @@
                         </div>
                     </div>
                     <div>
-                        <label>Ручной балл (override)</label>
+                        <label>Ручной балл</label>
                         <input data-bm-biz-score="${esc(id)}" inputmode="decimal" placeholder="авто" value="${esc(numOrEmpty(row.score_override))}">
                     </div>
                     <div>

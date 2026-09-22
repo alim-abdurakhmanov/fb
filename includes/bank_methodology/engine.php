@@ -371,17 +371,16 @@ function bank_methodology_compute_ratios(array $inputs): array
     $debtRatioManual = bank_methodology_num($inputs['debt_to_revenue'] ?? null);
 
     // Общая рентабельность
+    // Пустая/нулевая выручка = отсутствие выручки (галочка «Нет выручки» не нужна).
     $tpMetric = $rules['finance_metrics']['total_profitability'];
     $tpValue = null;
     $tpScore = null;
     $tpNote = '';
-    if (!empty($inputs['no_revenue'])) {
+    $revenueMissing = ($revenue === null || abs((float) $revenue) < 0.00001);
+    if ($revenueMissing) {
         $tpScore = -4.0;
         $tpNote = 'Отсутствие выручки';
-    } elseif ($revenue !== null && abs($revenue) < 0.00001) {
-        $tpScore = -4.0;
-        $tpNote = 'Отсутствие выручки';
-    } elseif ($revenue !== null && $profit !== null) {
+    } elseif ($profit !== null) {
         $tpValue = ($profit / $revenue) * 100.0;
         if (abs($tpValue) < 0.00001 && !empty($inputs['profitability_explained_zero'])) {
             $tpScore = (float) ($tpMetric['explained_zero_score'] ?? 0);
@@ -399,18 +398,17 @@ function bank_methodology_compute_ratios(array $inputs): array
     $out['total_profitability'] = ['value' => $tpValue, 'score' => $tpScore, 'note' => $tpNote];
 
     // ROE
+    // Пустое СК или 0 = отсутствие собственного капитала (галочка «Нет СК» больше не нужна).
     $roeMetric = $rules['finance_metrics']['roe'];
     $roeValue = null;
     $roeScore = null;
     $roeNote = '';
-    if (!empty($inputs['missing_equity']) || ($equity !== null && abs($equity) < 0.00001 && ($profit !== null))) {
-        // методика: отсутствие СК → −4
-        if (!empty($inputs['missing_equity']) || ($equity !== null && abs((float) $equity) < 0.00001)) {
-            $roeScore = (float) ($roeMetric['missing_equity_score'] ?? -4);
-            $roeNote = 'Отсутствие собственного капитала';
-        }
-    }
-    if ($roeScore === null && $equity !== null && abs($equity) > 0.00001 && $profit !== null) {
+    $equityMissing = ($equity === null || abs((float) $equity) < 0.00001);
+    $equityForRatios = $equityMissing ? 0.0 : (float) $equity;
+    if ($equityMissing) {
+        $roeScore = (float) ($roeMetric['missing_equity_score'] ?? -4);
+        $roeNote = 'Отсутствие собственного капитала';
+    } elseif ($profit !== null) {
         $roeValue = ($profit / $equity) * 100.0;
         if (abs($roeValue) < 0.00001 && !empty($inputs['roe_explained_zero'])) {
             $roeScore = (float) ($roeMetric['explained_zero_score'] ?? 0);
@@ -424,49 +422,57 @@ function bank_methodology_compute_ratios(array $inputs): array
     $out['roe'] = ['value' => $roeValue, 'score' => $roeScore, 'note' => $roeNote];
 
     // Ликвидность
+    // Пустые/нулевые текущие обязательства = их отсутствие (галочка не нужна).
     $liqMetric = $rules['finance_metrics']['current_liquidity'];
     $liqValue = null;
     $liqScore = null;
     $liqNote = '';
-    if (!empty($inputs['no_current_liabilities']) || ($cl !== null && abs($cl) < 0.00001)) {
+    $clMissing = ($cl === null || abs((float) $cl) < 0.00001);
+    if ($clMissing) {
         $liqScore = (float) ($liqMetric['no_current_liabilities_score'] ?? 6);
         $liqNote = 'Отсутствие текущих обязательств';
-        if ($ca !== null && $cl !== null && abs($cl) > 0.00001) {
-            $liqValue = $ca / $cl;
-        }
-    } elseif ($ca !== null && $cl !== null && abs($cl) > 0.00001) {
+    } elseif ($ca !== null && abs((float) $cl) > 0.00001) {
         $liqValue = $ca / $cl;
         $liqScore = bank_methodology_band_score($liqValue, $liqMetric['bands'], 'default');
     }
     $out['current_liquidity'] = ['value' => $liqValue, 'score' => $liqScore, 'note' => $liqNote];
 
-    // Независимость
+    // Независимость (пустое/нулевое СК = 0)
     $indValue = null;
     $indScore = null;
-    if ($equity !== null && $balance !== null && abs($balance) > 0.00001) {
-        $indValue = $equity / $balance;
+    $indNote = '';
+    if ($balance !== null && abs($balance) > 0.00001) {
+        $indValue = $equityForRatios / $balance;
         $indScore = bank_methodology_band_score($indValue, $rules['finance_metrics']['independence']['bands'], 'default');
+        if ($equityMissing) {
+            $indNote = 'СК отсутствует (принято как 0)';
+        }
     }
-    $out['independence'] = ['value' => $indValue, 'score' => $indScore, 'note' => ''];
+    $out['independence'] = ['value' => $indValue, 'score' => $indScore, 'note' => $indNote];
 
-    // Фин. устойчивость
+    // Фин. устойчивость (пустое/нулевое СК = 0)
     $fsValue = null;
     $fsScore = null;
-    if ($equity !== null && $lt !== null && $balance !== null && abs($balance) > 0.00001) {
-        $fsValue = ($equity + $lt) / $balance;
+    $fsNote = '';
+    if ($lt !== null && $balance !== null && abs($balance) > 0.00001) {
+        $fsValue = ($equityForRatios + $lt) / $balance;
         $fsScore = bank_methodology_band_score($fsValue, $rules['finance_metrics']['financial_stability']['bands'], 'default');
+        if ($equityMissing) {
+            $fsNote = 'СК отсутствует (принято как 0)';
+        }
     }
-    $out['financial_stability'] = ['value' => $fsValue, 'score' => $fsScore, 'note' => ''];
+    $out['financial_stability'] = ['value' => $fsValue, 'score' => $fsScore, 'note' => $fsNote];
 
     // Долг / выручка
-    // Методика: РАЗНИЦА = стр.15 + стр.19 − стр.6;
-    // если РАЗНИЦА ≤ 0: (стр.14 + стр.24) / выручка;
-    // если РАЗНИЦА > 0: (стр.14 + стр.24 + РАЗНИЦА) / выручка.
+    // Разница = кредиторка + прочие краткосрочные − текущие активы;
+    // если разница ≤ 0: (краткосрочные займы + долгосрочные займы) / выручка;
+    // если разница > 0: (краткосрочные займы + долгосрочные займы + разница) / выручка.
+    // Либо коэффициент задан вручную в debt_to_revenue.
     $debtMetric = $rules['finance_metrics']['debt_to_revenue'];
-    $stb = bank_methodology_num($inputs['short_term_borrowings'] ?? null); // стр.14 = 1510
-    $ap = bank_methodology_num($inputs['accounts_payable'] ?? null); // стр.15 = 1520
-    $osl = bank_methodology_num($inputs['other_short_liabilities'] ?? null); // стр.19 = 1540+1550
-    $ltb = bank_methodology_num($inputs['long_term_borrowings'] ?? null); // стр.24 = 1410
+    $stb = bank_methodology_num($inputs['short_term_borrowings'] ?? null);
+    $ap = bank_methodology_num($inputs['accounts_payable'] ?? null);
+    $osl = bank_methodology_num($inputs['other_short_liabilities'] ?? null);
+    $ltb = bank_methodology_num($inputs['long_term_borrowings'] ?? null);
     $debtValue = $debtRatioManual;
     $debtScore = null;
     $debtNote = '';
@@ -476,18 +482,18 @@ function bank_methodology_compute_ratios(array $inputs): array
     if (in_array($industry, ['leasing', 'factoring'], true) && !empty($debtMetric['alt_industry'])) {
         $bands = $debtMetric['alt_industry']['bands'];
     }
-    if (!empty($inputs['no_revenue']) || ($revenue !== null && abs($revenue) < 0.00001)) {
+    if ($revenueMissing) {
         $debtScore = (float) ($debtMetric['no_revenue_score'] ?? -6);
         $debtNote = 'Отсутствие выручки';
     } elseif ($debtValue === null && $revenue !== null && abs($revenue) > 0.00001
         && $stb !== null && $ltb !== null && $ap !== null && $osl !== null && $ca !== null) {
-        $diff = $ap + $osl - $ca; // РАЗНИЦА
+        $diff = $ap + $osl - $ca;
         if ($diff <= 0) {
             $debtValue = ($stb + $ltb) / $revenue;
-            $debtNote = 'По формуле методики (РАЗНИЦА ≤ 0)';
+            $debtNote = 'Авторасчёт: разница ≤ 0';
         } else {
             $debtValue = ($stb + $ltb + $diff) / $revenue;
-            $debtNote = 'По формуле методики (РАЗНИЦА > 0)';
+            $debtNote = 'Авторасчёт: разница > 0';
         }
     } elseif ($debtValue !== null) {
         $debtNote = 'Задан вручную';
