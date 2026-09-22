@@ -192,23 +192,23 @@
             const ratingText = incomplete ? '—' : (r.rating || '—');
             const posText = r.position_label || '';
             box.innerHTML = `
-                <div class="bm-kpi">
+                <div class="bm-kpi bm-kpi-score">
                     <div class="label">Финансы</div>
-                    <div class="value">${esc(fmtScore(r.finance_score))} <span class="sub">/ 50</span></div>
+                    <div class="value">${esc(fmtScore(r.finance_score))}<span class="denom">/50</span></div>
                 </div>
-                <div class="bm-kpi">
+                <div class="bm-kpi bm-kpi-score">
                     <div class="label">Бизнес-риск</div>
-                    <div class="value">${esc(fmtScore(r.business_score))} <span class="sub">/ 50</span></div>
+                    <div class="value">${esc(fmtScore(r.business_score))}<span class="denom">/50</span></div>
                 </div>
-                <div class="bm-kpi">
+                <div class="bm-kpi bm-kpi-total">
                     <div class="label">Итого</div>
-                    <div class="value">${esc(fmtScore(r.total_score))} <span class="sub">/ 100</span></div>
-                    <div class="sub">версия ${assessment ? assessment.version : '—'} · <span class="bm-status-chip ${esc(status)}">${esc(statusLabel)}</span></div>
+                    <div class="value">${esc(fmtScore(r.total_score))}<span class="denom">/100</span></div>
+                    <div class="meta">v${assessment ? assessment.version : '—'} · <span class="bm-status-chip ${esc(status)}">${esc(statusLabel)}</span></div>
                 </div>
-                <div class="bm-kpi">
+                <div class="bm-kpi bm-kpi-rating ${posClass}">
                     <div class="label">Рейтинг</div>
-                    <div class="value ${posClass}">${esc(ratingText)}</div>
-                    <div class="sub ${posClass}">${esc(posText)}${r.hard_stop ? ' · обязательный стоп' : ''}</div>
+                    <div class="value">${esc(ratingText)}</div>
+                    <div class="meta">${esc(posText)}${r.hard_stop ? ' · стоп' : ''}</div>
                 </div>`;
         }
 
@@ -225,7 +225,7 @@
             }
             if (r.hard_stop) {
                 const list = (r.mandatory_stops || []).map(function (s) {
-                    return '<li><strong>' + esc(s.code) + '</strong> — ' + esc(s.label)
+                    return '<li>' + esc(s.label)
                         + (s.comment ? ' <span class="text-muted">(' + esc(s.comment) + ')</span>' : '')
                         + '</li>';
                 }).join('');
@@ -233,7 +233,7 @@
             }
             if ((r.conditional_stops || []).length) {
                 const list = (r.conditional_stops || []).map(function (s) {
-                    return '<li><strong>' + esc(s.code) + '</strong> — ' + esc(s.label)
+                    return '<li>' + esc(s.label)
                         + (s.comment ? ' <span class="text-muted">(' + esc(s.comment) + ')</span>' : '')
                         + '</li>';
                 }).join('');
@@ -310,24 +310,38 @@
 
         function renderAll() {
             if (!rules || !state) return;
-            const stopHtml = (rules.stop_factors || []).map(function (sf) {
-                const row = (state.stop_factors || []).find(function (x) { return x.code === sf.code; }) || {};
-                const on = !!row.triggered;
-                const cond = !sf.mandatory;
-                const id = 'bm-stop-' + String(sf.code).replace(/[^a-zA-Z0-9_-]/g, '_');
-                return `
-                <div class="bm-stop-item ${on ? 'is-on' : ''} ${cond ? 'is-conditional' : ''}">
-                    <label class="bm-stop-head" for="${esc(id)}">
-                        <input id="${esc(id)}" type="checkbox" data-bm-stop="${esc(sf.code)}" ${on ? 'checked' : ''}>
-                        <span class="bm-stop-main">
+            const stopGroupLabels = rules.stop_groups || {};
+            const stopByGroup = {};
+            (rules.stop_factors || []).forEach(function (sf) {
+                const g = sf.group || 'other';
+                if (!stopByGroup[g]) stopByGroup[g] = [];
+                stopByGroup[g].push(sf);
+            });
+            const stopGroupOrder = Object.keys(stopGroupLabels).length
+                ? Object.keys(stopGroupLabels)
+                : Object.keys(stopByGroup);
+            const stopHtml = stopGroupOrder.map(function (groupId) {
+                const items = stopByGroup[groupId];
+                if (!items || !items.length) return '';
+                const title = stopGroupLabels[groupId] || groupId;
+                const cards = items.map(function (sf) {
+                    const row = (state.stop_factors || []).find(function (x) { return x.code === sf.code; }) || {};
+                    const on = !!row.triggered;
+                    const cond = !sf.mandatory;
+                    const id = 'bm-stop-' + String(sf.code).replace(/[^a-zA-Z0-9_-]/g, '_');
+                    return `
+                    <div class="bm-stop-item ${on ? 'is-on' : ''} ${cond ? 'is-conditional' : ''}">
+                        <label class="bm-stop-head" for="${esc(id)}">
+                            <input id="${esc(id)}" type="checkbox" data-bm-stop="${esc(sf.code)}" ${on ? 'checked' : ''}>
                             <span class="title">${esc(sf.label)}</span>
-                            <span class="bm-stop-meta">
-                                <span class="bm-stop-code">${esc(sf.code)}</span>
-                                <span class="bm-stop-kind ${cond ? 'cond' : 'must'}">${cond ? 'условный' : 'обязательный'}</span>
-                            </span>
-                        </span>
-                    </label>
-                    <textarea data-bm-stop-comment="${esc(sf.code)}" rows="2" placeholder="Комментарий">${esc(row.comment || '')}</textarea>
+                        </label>
+                        <textarea data-bm-stop-comment="${esc(sf.code)}" rows="2" placeholder="Комментарий">${esc(row.comment || '')}</textarea>
+                    </div>`;
+                }).join('');
+                return `
+                <div class="bm-stop-group">
+                    <h6 class="bm-stop-group-title">${esc(title)}</h6>
+                    <div class="bm-stop-grid">${cards}</div>
                 </div>`;
             }).join('');
 
@@ -458,7 +472,7 @@
 
                 <div class="bm-section" data-bm-section="stops">
                     <div class="bm-section-head"><h5>1. Стоп-факторы</h5><span class="meta">обязательные и условные</span></div>
-                    <div class="bm-section-body"><div class="bm-stop-grid">${stopHtml}</div></div>
+                    <div class="bm-section-body"><div class="bm-stop-groups">${stopHtml}</div></div>
                 </div>
 
                 <div class="bm-section" data-bm-section="finance">

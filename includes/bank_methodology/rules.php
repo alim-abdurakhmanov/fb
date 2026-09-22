@@ -24,6 +24,20 @@ function bank_methodology_rules(): array
             'max_business' => 50,
         ],
 
+        'stop_groups' => [
+            'status' => 'Статус компании',
+            'owners' => 'Участники в уставном капитале',
+            'registry' => 'Реестры',
+            'region' => 'Регионы риска',
+            'persons' => 'Должностные лица и учредители',
+            'legal' => 'Правовые риски',
+            'beneficiary' => 'Бенефициар',
+            'aml' => 'ПОД/ФТ и комплаенс',
+            'security' => 'Служба безопасности',
+            'deal' => 'Сделка',
+            'conditional' => 'Условные (для профсуждения)',
+        ],
+
         'stop_factors' => [
             ['code' => '1.1', 'group' => 'status', 'label' => 'Недействующее ЮЛ (нет данных в ЕГРЮЛ)', 'mandatory' => true],
             ['code' => '1.2', 'group' => 'status', 'label' => 'Решение об исключении из ЕГРЮЛ', 'mandatory' => true],
