@@ -102,7 +102,8 @@
             });
             ['q1_seasonal_loss_explained', 'profitability_explained_zero', 'roe_explained_zero'].forEach(function (k) {
                 const el = root.querySelector('[data-bm-fin-flag="' + k + '"]');
-                if (el) next.finance.inputs[k] = !!el.checked;
+                // Если галочка скрыта (значение не 0%) — считаем снятой
+                next.finance.inputs[k] = !!(el && el.checked);
             });
 
             // finance score overrides
@@ -245,6 +246,25 @@
                     note.textContent = parts.join(' · ');
                 }
             });
+
+            function isZeroPct(v) {
+                return v != null && v !== '' && !Number.isNaN(Number(v)) && Math.abs(Number(v)) < 0.00001;
+            }
+            [
+                { id: 'total_profitability', flag: 'profitability_explained_zero' },
+                { id: 'roe', flag: 'roe_explained_zero' }
+            ].forEach(function (item) {
+                const wrap = root.querySelector('[data-bm-zero-explain="' + item.id + '"]');
+                if (!wrap) return;
+                const m = fin[item.id] || {};
+                const show = isZeroPct(m.value);
+                wrap.hidden = !show;
+                if (!show) {
+                    const cb = wrap.querySelector('[data-bm-fin-flag="' + item.flag + '"]');
+                    if (cb) cb.checked = false;
+                }
+            });
+
             const biz = (evaluated.business && evaluated.business.metrics) || {};
             Object.keys(biz).forEach(function (id) {
                 const pill = root.querySelector('[data-bm-biz-pill="' + id + '"]');
@@ -316,8 +336,6 @@
                         </select>
                     </div>
                     <div class="bm-checks" style="grid-column:1/-1">
-                        <label><input type="checkbox" data-bm-fin-flag="profitability_explained_zero" ${inputs.profitability_explained_zero ? 'checked' : ''}> Рент. 0% с объяснением</label>
-                        <label><input type="checkbox" data-bm-fin-flag="roe_explained_zero" ${inputs.roe_explained_zero ? 'checked' : ''}> ROE 0% с объяснением</label>
                         <label><input type="checkbox" data-bm-fin-flag="q1_seasonal_loss_explained" ${inputs.q1_seasonal_loss_explained ? 'checked' : ''}> Убыток 1 кв. (сезонность)</label>
                     </div>
                     <p class="small text-muted mb-0" style="grid-column:1/-1">
@@ -333,11 +351,22 @@
             const finMetricsHtml = Object.keys(finMetrics).map(function (id) {
                 const m = finMetrics[id];
                 const ov = overrides[id];
+                let zeroExplain = '';
+                if (id === 'total_profitability') {
+                    zeroExplain = `<div class="bm-checks mt-1" data-bm-zero-explain="total_profitability" hidden>
+                        <label><input type="checkbox" data-bm-fin-flag="profitability_explained_zero" ${inputs.profitability_explained_zero ? 'checked' : ''}> 0% с объяснением</label>
+                    </div>`;
+                } else if (id === 'roe') {
+                    zeroExplain = `<div class="bm-checks mt-1" data-bm-zero-explain="roe" hidden>
+                        <label><input type="checkbox" data-bm-fin-flag="roe_explained_zero" ${inputs.roe_explained_zero ? 'checked' : ''}> 0% с объяснением</label>
+                    </div>`;
+                }
                 return `
                 <div class="bm-metric">
                     <div>
                         <div class="name">${esc(m.label)}</div>
                         <div class="hint" data-bm-fin-note="${esc(id)}"></div>
+                        ${zeroExplain}
                     </div>
                     <div>
                         <label>Ручной балл</label>
