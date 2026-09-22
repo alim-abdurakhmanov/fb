@@ -208,7 +208,7 @@
                 <div class="bm-kpi">
                     <div class="label">Рейтинг</div>
                     <div class="value ${posClass}">${esc(ratingText)}</div>
-                    <div class="sub ${posClass}">${esc(posText)}${r.hard_stop ? ' · стоп-фактор' : ''}</div>
+                    <div class="sub ${posClass}">${esc(posText)}${r.hard_stop ? ' · обязательный стоп' : ''}${(r.conditional_stops || []).length ? ' · условный стоп' : ''}</div>
                 </div>`;
         }
 
@@ -225,9 +225,19 @@
             }
             if (r.hard_stop) {
                 const list = (r.mandatory_stops || []).map(function (s) {
-                    return '<li><strong>' + esc(s.code) + '</strong> — ' + esc(s.label) + '</li>';
+                    return '<li><strong>' + esc(s.code) + '</strong> — ' + esc(s.label)
+                        + (s.comment ? ' <span class="text-muted">(' + esc(s.comment) + ')</span>' : '')
+                        + '</li>';
                 }).join('');
                 html += `<div class="bm-banner stop"><strong>Сработали обязательные стоп-факторы.</strong> Как правило — отказ от сделки.<ul class="mb-0 mt-2">${list}</ul></div>`;
+            }
+            if ((r.conditional_stops || []).length) {
+                const list = (r.conditional_stops || []).map(function (s) {
+                    return '<li><strong>' + esc(s.code) + '</strong> — ' + esc(s.label)
+                        + (s.comment ? ' <span class="text-muted">(' + esc(s.comment) + ')</span>' : '')
+                        + '</li>';
+                }).join('');
+                html += `<div class="bm-banner warn"><strong>Отмечены условные стоп-факторы.</strong> Не блокируют оценку автоматически — учитываются в профсуждении.<ul class="mb-0 mt-2">${list}</ul></div>`;
             }
             (r.warnings || []).forEach(function (w) {
                 if (r.incomplete && String(w).indexOf('Недостаточно данных') === 0) {
@@ -257,6 +267,17 @@
                     if (m.note) parts.push(m.note);
                     note.textContent = parts.join(' · ');
                 }
+                if (id === 'debt_to_revenue') {
+                    const debtInput = root.querySelector('[data-bm-fin="debt_to_revenue"]');
+                    if (debtInput && document.activeElement !== debtInput) {
+                        const hasManual = String(debtInput.value).trim() !== '';
+                        if (!hasManual && m.value != null && m.value !== '') {
+                            debtInput.placeholder = 'авто: ' + fmtScore(m.value);
+                        } else {
+                            debtInput.placeholder = 'авто — из полей выше';
+                        }
+                    }
+                }
             });
 
             function isZeroPct(v) {
@@ -285,22 +306,6 @@
                 pill.textContent = fmtScore(m.score) + ' / ' + m.max;
                 pill.className = 'score-pill' + (m.source === 'edited' ? ' edited' : (m.source === 'pending' ? ' pending' : ''));
             });
-
-            const debtCalc = root.querySelector('[data-bm-debt-calc]');
-            if (debtCalc) {
-                const manual = root.querySelector('[data-bm-fin="debt_to_revenue"]');
-                const hasManual = !!(manual && String(manual.value).trim() !== '');
-                const m = fin.debt_to_revenue || {};
-                if (hasManual) {
-                    debtCalc.textContent = 'Сейчас используется коэффициент, введённый вручную';
-                } else if (m.value != null && m.value !== '') {
-                    debtCalc.textContent = 'Рассчитано автоматически: ' + fmtScore(m.value);
-                } else if (m.note) {
-                    debtCalc.textContent = m.note;
-                } else {
-                    debtCalc.textContent = 'Авторасчёт появится после заполнения выручки, займов, кредиторки, прочих краткосрочных и текущих активов';
-                }
-            }
         }
 
         function renderAll() {
@@ -309,14 +314,20 @@
                 const row = (state.stop_factors || []).find(function (x) { return x.code === sf.code; }) || {};
                 const on = !!row.triggered;
                 const cond = !sf.mandatory;
+                const id = 'bm-stop-' + String(sf.code).replace(/[^a-zA-Z0-9_-]/g, '_');
                 return `
                 <div class="bm-stop-item ${on ? 'is-on' : ''} ${cond ? 'is-conditional' : ''}">
-                    <div><input type="checkbox" data-bm-stop="${esc(sf.code)}" ${on ? 'checked' : ''}></div>
-                    <div>
-                        <label class="title">${esc(sf.label)}</label>
-                        <div class="codes">${esc(sf.code)}${cond ? ' · условный' : ' · обязательный'}</div>
-                        <textarea data-bm-stop-comment="${esc(sf.code)}" placeholder="Комментарий (обязателен при снятии/установке по решению менеджера)">${esc(row.comment || '')}</textarea>
-                    </div>
+                    <label class="bm-stop-head" for="${esc(id)}">
+                        <input id="${esc(id)}" type="checkbox" data-bm-stop="${esc(sf.code)}" ${on ? 'checked' : ''}>
+                        <span class="bm-stop-main">
+                            <span class="title">${esc(sf.label)}</span>
+                            <span class="bm-stop-meta">
+                                <span class="bm-stop-code">${esc(sf.code)}</span>
+                                <span class="bm-stop-kind ${cond ? 'cond' : 'must'}">${cond ? 'условный' : 'обязательный'}</span>
+                            </span>
+                        </span>
+                    </label>
+                    <textarea data-bm-stop-comment="${esc(sf.code)}" rows="2" placeholder="Комментарий">${esc(row.comment || '')}</textarea>
                 </div>`;
             }).join('');
 
@@ -324,22 +335,17 @@
             const locked = isLocked();
             const finInputsHtml = `
                 <div class="bm-inputs">
-                    <div><label>Выручка, руб</label><input data-bm-fin="revenue" inputmode="decimal" placeholder="пусто или 0 — нет выручки" value="${esc(numOrEmpty(inputs.revenue))}"></div>
+                    <div><label>Выручка, руб</label><input data-bm-fin="revenue" inputmode="decimal" placeholder="0 — нет выручки" value="${esc(numOrEmpty(inputs.revenue))}"></div>
                     <div><label>Чистая прибыль, руб</label><input data-bm-fin="net_profit" inputmode="decimal" value="${esc(numOrEmpty(inputs.net_profit))}"></div>
-                    <div><label>Собственные средства (СК), руб</label><input data-bm-fin="equity" inputmode="decimal" placeholder="пусто или 0 — нет СК" value="${esc(numOrEmpty(inputs.equity))}"></div>
+                    <div><label>Собственные средства (СК), руб</label><input data-bm-fin="equity" inputmode="decimal" placeholder="0 — нет СК" value="${esc(numOrEmpty(inputs.equity))}"></div>
                     <div><label>Текущие активы, руб</label><input data-bm-fin="current_assets" inputmode="decimal" value="${esc(numOrEmpty(inputs.current_assets))}"></div>
-                    <div><label>Текущие обязательства, руб</label><input data-bm-fin="current_liabilities" inputmode="decimal" placeholder="пусто или 0 — нет обязательств" value="${esc(numOrEmpty(inputs.current_liabilities))}"></div>
+                    <div><label>Текущие обязательства, руб</label><input data-bm-fin="current_liabilities" inputmode="decimal" placeholder="0 — нет обязательств" value="${esc(numOrEmpty(inputs.current_liabilities))}"></div>
                     <div><label>Долгосрочные обязательства, руб</label><input data-bm-fin="long_term_liabilities" inputmode="decimal" value="${esc(numOrEmpty(inputs.long_term_liabilities))}"></div>
                     <div><label>Валюта баланса (итог), руб</label><input data-bm-fin="balance_total" inputmode="decimal" value="${esc(numOrEmpty(inputs.balance_total))}"></div>
                     <div><label>Краткосрочные займы, руб</label><input data-bm-fin="short_term_borrowings" inputmode="decimal" value="${esc(numOrEmpty(inputs.short_term_borrowings))}"></div>
                     <div><label>Кредиторская задолженность, руб</label><input data-bm-fin="accounts_payable" inputmode="decimal" value="${esc(numOrEmpty(inputs.accounts_payable))}"></div>
                     <div><label>Прочие краткосрочные обязательства, руб</label><input data-bm-fin="other_short_liabilities" inputmode="decimal" value="${esc(numOrEmpty(inputs.other_short_liabilities))}"></div>
                     <div><label>Долгосрочные займы, руб</label><input data-bm-fin="long_term_borrowings" inputmode="decimal" value="${esc(numOrEmpty(inputs.long_term_borrowings))}"></div>
-                    <div>
-                        <label>Отношение долга к выручке, коэф.</label>
-                        <input data-bm-fin="debt_to_revenue" inputmode="decimal" placeholder="необязательно — иначе посчитаем сами" value="${esc(numOrEmpty(inputs.debt_to_revenue))}">
-                        <div class="small text-muted mt-1" data-bm-debt-calc>Авторасчёт появится после заполнения выручки, займов, кредиторки, прочих краткосрочных и текущих активов</div>
-                    </div>
                     <div><label>Отрасль</label>
                         <select data-bm-fin="industry">
                             <option value="default" ${inputs.industry === 'default' || !inputs.industry ? 'selected' : ''}>Обычная</option>
@@ -347,15 +353,10 @@
                             <option value="factoring" ${inputs.industry === 'factoring' ? 'selected' : ''}>Факторинг</option>
                         </select>
                     </div>
-                    <div class="bm-checks" style="grid-column:1/-1">
-                        <label><input type="checkbox" data-bm-fin-flag="q1_seasonal_loss_explained" ${inputs.q1_seasonal_loss_explained ? 'checked' : ''}> Убыток 1 кв. (сезонность)</label>
+                    <div>
+                        <label>&nbsp;</label>
+                        <label class="bm-inline-check"><input type="checkbox" data-bm-fin-flag="q1_seasonal_loss_explained" ${inputs.q1_seasonal_loss_explained ? 'checked' : ''}> Убыток 1 кв. (сезонность)</label>
                     </div>
-                    <p class="small text-muted mb-0" style="grid-column:1/-1">
-                        Отношение долга к выручке считается так:
-                        разница = кредиторская + прочие краткосрочные − текущие активы;
-                        если разница ≤ 0 → (краткосрочные займы + долгосрочные займы) / выручка;
-                        если разница &gt; 0 → (краткосрочные займы + долгосрочные займы + разница) / выручка.
-                    </p>
                 </div>`;
 
             const finMetrics = rules.finance_metrics || {};
@@ -373,12 +374,21 @@
                         <label><input type="checkbox" data-bm-fin-flag="roe_explained_zero" ${inputs.roe_explained_zero ? 'checked' : ''}> 0% с объяснением</label>
                     </div>`;
                 }
+                let valueField = '';
+                if (id === 'debt_to_revenue') {
+                    valueField = `<div class="mt-2">
+                        <label>Коэффициент</label>
+                        <input data-bm-fin="debt_to_revenue" inputmode="decimal" placeholder="авто — из полей выше" value="${esc(numOrEmpty(inputs.debt_to_revenue))}">
+                        <div class="hint mt-1">Можно поправить вручную. Авто: разница = кредиторка + прочие кр. − текущие активы; затем (займы ± разница) / выручка.</div>
+                    </div>`;
+                }
                 return `
                 <div class="bm-metric">
                     <div>
                         <div class="name">${esc(m.label)}</div>
                         <div class="hint" data-bm-fin-note="${esc(id)}"></div>
                         ${zeroExplain}
+                        ${valueField}
                     </div>
                     <div>
                         <label>Ручной балл</label>
@@ -519,6 +529,13 @@
             root.querySelectorAll('input, select, textarea').forEach(function (el) {
                 el.addEventListener('change', scheduleRecalc);
                 el.addEventListener('input', scheduleRecalc);
+            });
+
+            root.querySelectorAll('[data-bm-stop]').forEach(function (el) {
+                el.addEventListener('change', function () {
+                    const item = el.closest('.bm-stop-item');
+                    if (item) item.classList.toggle('is-on', !!el.checked);
+                });
             });
 
             const act = async function (name) {
