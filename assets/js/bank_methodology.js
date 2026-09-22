@@ -100,11 +100,23 @@
                 if (!el) return;
                 next.finance.inputs[k] = el.type === 'checkbox' ? el.checked : (el.value === '' ? null : el.value);
             });
-            ['q1_seasonal_loss_explained', 'profitability_explained_zero', 'roe_explained_zero'].forEach(function (k) {
+            ['q1_seasonal_loss_explained'].forEach(function (k) {
                 const el = root.querySelector('[data-bm-fin-flag="' + k + '"]');
-                // Если галочка скрыта (значение не 0%) — считаем снятой
                 next.finance.inputs[k] = !!(el && el.checked);
             });
+            // Галочки «0% с объяснением» учитываем только если показаны у метрики
+            next.finance.inputs.profitability_explained_zero = false;
+            next.finance.inputs.roe_explained_zero = false;
+            const tpExplain = root.querySelector('[data-bm-zero-explain="total_profitability"]');
+            if (tpExplain && !tpExplain.hidden) {
+                const el = tpExplain.querySelector('[data-bm-fin-flag="profitability_explained_zero"]');
+                next.finance.inputs.profitability_explained_zero = !!(el && el.checked);
+            }
+            const roeExplain = root.querySelector('[data-bm-zero-explain="roe"]');
+            if (roeExplain && !roeExplain.hidden) {
+                const el = roeExplain.querySelector('[data-bm-fin-flag="roe_explained_zero"]');
+                next.finance.inputs.roe_explained_zero = !!(el && el.checked);
+            }
 
             // finance score overrides
             next.finance.score_overrides = next.finance.score_overrides || {};
