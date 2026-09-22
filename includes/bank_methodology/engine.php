@@ -28,7 +28,7 @@ function bank_methodology_empty_state(): array
     foreach ($rules['business_metrics'] as $id => $metric) {
         $business[$id] = [
             'value' => null,
-            'source' => !empty($metric['manual_only']) ? 'manual' : 'manual',
+            'source' => 'manual',
             'score_override' => null,
         ];
     }
@@ -109,23 +109,50 @@ function bank_methodology_evaluate(array $state): array
     $businessScore = (float) $business['total'];
     $total = $financeScore + $businessScore;
 
-    $ratingInfo = bank_methodology_map_rating($total, $rules);
-    $position = $ratingInfo['position'];
+    $pendingFinance = [];
+    foreach ($finance['metrics'] as $id => $m) {
+        if (($m['source'] ?? '') === 'pending') {
+            $pendingFinance[] = $id;
+        }
+    }
+    $pendingBusiness = [];
+    foreach ($business['metrics'] as $id => $m) {
+        if (($m['source'] ?? '') === 'pending') {
+            $pendingBusiness[] = $id;
+        }
+    }
+    $incomplete = $pendingFinance !== [] || $pendingBusiness !== [];
+
     $warnings = [];
+    if ($incomplete) {
+        $warnings[] = 'Недостаточно данных для итогового рейтинга: заполните все финансовые и бизнес-показатели (или задайте ручной балл).';
+        $ratingInfo = [
+            'rating' => null,
+            'category' => null,
+            'position' => 'incomplete',
+        ];
+        $position = 'incomplete';
+    } else {
+        $ratingInfo = bank_methodology_map_rating($total, $rules);
+        $position = $ratingInfo['position'];
+    }
 
     $equity = $state['finance']['inputs']['equity'] ?? null;
     $negativeEquity = !empty($state['judgment']['negative_equity'])
         || ($equity !== null && $equity !== '' && (float) $equity < 0);
-    if ($negativeEquity && $position === 'good') {
+    if (!$incomplete && $negativeEquity && $position === 'good') {
         $position = 'average';
         $warnings[] = 'Отрицательный собственный капитал: положение не может быть «Хорошим» (максимум «Среднее»).';
     }
-    if (!empty($state['judgment']['force_not_good']) && $position === 'good') {
+    if (!$incomplete && !empty($state['judgment']['force_not_good']) && $position === 'good') {
         $position = 'average';
         $warnings[] = 'Отмечены обстоятельства, исключающие оценку «Хорошее» (по методике / 590-П).';
     }
 
     $hardStop = $mandatoryStops !== [];
+
+    $positionLabels = $rules['position_labels'];
+    $positionLabels['incomplete'] = 'Недостаточно данных';
 
     return [
         'state' => $state,
@@ -136,7 +163,10 @@ function bank_methodology_evaluate(array $state): array
             'rating' => $ratingInfo['rating'],
             'category' => $ratingInfo['category'],
             'position' => $position,
-            'position_label' => $rules['position_labels'][$position] ?? $position,
+            'position_label' => $positionLabels[$position] ?? $position,
+            'incomplete' => $incomplete,
+            'pending_finance' => $pendingFinance,
+            'pending_business' => $pendingBusiness,
             'hard_stop' => $hardStop,
             'mandatory_stops' => $mandatoryStops,
             'conditional_stops' => $conditionalStops,
@@ -246,18 +276,26 @@ function bank_methodology_score_finance(array $financeState, array $rules): arra
         $source = 'auto';
         $score = $autoScore;
         if (array_key_exists($id, $overrides) && $overrides[$id] !== null && $overrides[$id] !== '') {
-            $score = (float) $overrides[$id];
+            $score = bank_methodology_clamp_score((float) $overrides[$id], $metric, $max);
             $source = 'edited';
         }
 
         if ($score === null) {
-            $score = 0.0;
-            if ($note === '') {
-                $note = 'Недостаточно данных для авторасчёта';
-            }
-            if ($source === 'auto') {
-                $source = 'pending';
-            }
+            // Не подставляем 0: иначе пустая форма даёт рейтинг D.
+            $metricsOut[$id] = [
+                'id' => $id,
+                'label' => $metric['label'],
+                'group' => $metric['group'],
+                'value' => $value,
+                'auto_score' => $autoScore,
+                'score' => null,
+                'max' => $max,
+                'weight' => $metric['weight'],
+                'source' => 'pending',
+                'note' => $note !== '' ? $note : 'Недостаточно данных для авторасчёта',
+                'unit' => $metric['unit'] ?? '',
+            ];
+            continue;
         }
 
         $metricsOut[$id] = [
@@ -277,6 +315,41 @@ function bank_methodology_score_finance(array $financeState, array $rules): arra
     }
 
     return ['total' => $total, 'metrics' => $metricsOut, 'ratios' => $computed];
+}
+
+/**
+ * Ограничить ручной балл допустимым диапазоном шкалы методики.
+ *
+ * @param array<string,mixed> $metric
+ */
+function bank_methodology_clamp_score(float $score, array $metric, int $max): float
+{
+    $min = 0.0;
+    $hasRange = false;
+    $bands = $metric['bands'] ?? [];
+    $industryBands = $metric['alt_industry']['bands'] ?? null;
+    foreach ([$bands, is_array($industryBands) ? $industryBands : []] as $set) {
+        foreach ($set as $b) {
+            $hasRange = true;
+            $min = min($min, (float) ($b['score'] ?? 0));
+        }
+    }
+    if (!empty($metric['options']) && is_array($metric['options'])) {
+        foreach ($metric['options'] as $opt) {
+            $hasRange = true;
+            $min = min($min, (float) ($opt['score'] ?? 0));
+        }
+    }
+    if (!$hasRange) {
+        $min = -1 * abs($max);
+    }
+    if ($score > $max) {
+        return (float) $max;
+    }
+    if ($score < $min) {
+        return $min;
+    }
+    return $score;
 }
 
 /**
@@ -386,7 +459,14 @@ function bank_methodology_compute_ratios(array $inputs): array
     $out['financial_stability'] = ['value' => $fsValue, 'score' => $fsScore, 'note' => ''];
 
     // Долг / выручка
+    // Методика: РАЗНИЦА = стр.15 + стр.19 − стр.6;
+    // если РАЗНИЦА ≤ 0: (стр.14 + стр.24) / выручка;
+    // если РАЗНИЦА > 0: (стр.14 + стр.24 + РАЗНИЦА) / выручка.
     $debtMetric = $rules['finance_metrics']['debt_to_revenue'];
+    $stb = bank_methodology_num($inputs['short_term_borrowings'] ?? null); // стр.14 = 1510
+    $ap = bank_methodology_num($inputs['accounts_payable'] ?? null); // стр.15 = 1520
+    $osl = bank_methodology_num($inputs['other_short_liabilities'] ?? null); // стр.19 = 1540+1550
+    $ltb = bank_methodology_num($inputs['long_term_borrowings'] ?? null); // стр.24 = 1410
     $debtValue = $debtRatioManual;
     $debtScore = null;
     $debtNote = '';
@@ -399,10 +479,24 @@ function bank_methodology_compute_ratios(array $inputs): array
     if (!empty($inputs['no_revenue']) || ($revenue !== null && abs($revenue) < 0.00001)) {
         $debtScore = (float) ($debtMetric['no_revenue_score'] ?? -6);
         $debtNote = 'Отсутствие выручки';
+    } elseif ($debtValue === null && $revenue !== null && abs($revenue) > 0.00001
+        && $stb !== null && $ltb !== null && $ap !== null && $osl !== null && $ca !== null) {
+        $diff = $ap + $osl - $ca; // РАЗНИЦА
+        if ($diff <= 0) {
+            $debtValue = ($stb + $ltb) / $revenue;
+            $debtNote = 'По формуле методики (РАЗНИЦА ≤ 0)';
+        } else {
+            $debtValue = ($stb + $ltb + $diff) / $revenue;
+            $debtNote = 'По формуле методики (РАЗНИЦА > 0)';
+        }
     } elseif ($debtValue !== null) {
+        $debtNote = 'Задан вручную';
+    }
+
+    if ($debtScore === null && $debtValue !== null) {
         if (abs($debtValue) < 0.00001) {
             $debtScore = (float) $bands[0]['score'];
-            $debtNote = 'Значение 0 — максимальный балл';
+            $debtNote = trim($debtNote . '; значение 0 — максимальный балл');
         } else {
             $debtScore = bank_methodology_band_score($debtValue, $bands, $mode);
         }
@@ -478,12 +572,25 @@ function bank_methodology_score_business(array $businessState, array $rules): ar
         $source = (string) ($row['source'] ?? 'manual');
         $score = $autoScore;
         if ($override !== null && $override !== '') {
-            $score = (float) $override;
+            $score = bank_methodology_clamp_score((float) $override, $metric, (int) $metric['max']);
             $source = 'edited';
         }
         if ($score === null) {
-            $score = 0.0;
-            $source = $source === 'edited' ? 'edited' : 'pending';
+            $metricsOut[$id] = [
+                'id' => $id,
+                'label' => $metric['label'],
+                'value' => $value,
+                'auto_score' => $autoScore,
+                'score' => null,
+                'max' => (int) $metric['max'],
+                'weight' => $metric['weight'],
+                'source' => 'pending',
+                'note' => $note !== '' ? $note : 'Не выбрано',
+                'options' => $metric['options'],
+                'hint' => $metric['hint'] ?? '',
+                'manual_only' => !empty($metric['manual_only']),
+            ];
+            continue;
         }
 
         $metricsOut[$id] = [

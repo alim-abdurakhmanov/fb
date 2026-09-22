@@ -242,6 +242,13 @@ function bank_methodology_finalize(PDO $pdo, int $bankCaseId, int $userId, ?arra
         return $latest;
     }
 
+    $evaluated = bank_methodology_evaluate($latest['state']);
+    if (!empty($evaluated['result']['incomplete'])) {
+        throw new RuntimeException(
+            'Нельзя зафиксировать: недостаточно данных для итогового рейтинга. Заполните все показатели или укажите ручной балл.'
+        );
+    }
+
     $stmt = $pdo->prepare(
         'UPDATE bank_case_methodology_assessments
          SET status = ?, finalized_by = ?, finalized_at = NOW(), updated_by = ?, updated_at = NOW()
