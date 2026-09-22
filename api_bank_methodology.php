@@ -114,6 +114,7 @@ try {
             'rules' => [
                 'meta' => bank_methodology_rules()['meta'],
                 'stop_factors' => bank_methodology_rules()['stop_factors'],
+                'stop_groups' => bank_methodology_rules()['stop_groups'],
                 'finance_groups' => bank_methodology_rules()['finance_groups'],
                 'finance_metrics' => array_map(static function (array $m): array {
                     return [
