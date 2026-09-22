@@ -128,6 +128,13 @@ try {
                 }, bank_methodology_rules()['finance_metrics']),
                 'business_metrics' => bank_methodology_rules()['business_metrics'],
                 'position_labels' => bank_methodology_rules()['position_labels'],
+                'rating_scale' => array_map(static function (array $r): array {
+                    return [
+                        'rating' => $r['rating'],
+                        'category' => $r['category'],
+                        'position' => $r['position'],
+                    ];
+                }, bank_methodology_rules()['rating_scale']),
             ],
             'application' => [
                 'id' => $applicationId,

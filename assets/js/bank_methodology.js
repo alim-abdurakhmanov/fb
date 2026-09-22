@@ -91,9 +91,12 @@
 
             // finance inputs
             const finKeys = [
-                'revenue', 'net_profit', 'equity', 'current_assets', 'current_liabilities',
-                'long_term_liabilities', 'balance_total', 'industry',
-                'short_term_borrowings', 'long_term_borrowings', 'accounts_payable', 'other_short_liabilities'
+                'revenue', 'revenue_last_year', 'net_profit', 'prior_year_net_profit',
+                'income_from_participation', 'interest_receivable', 'other_income',
+                'equity', 'current_assets', 'current_liabilities',
+                'long_term_liabilities', 'balance_total', 'industry', 'reporting_period',
+                'short_term_borrowings', 'long_term_borrowings', 'accounts_payable', 'other_short_liabilities',
+                'q1_seasonal_comment'
             ];
             finKeys.forEach(function (k) {
                 const el = root.querySelector('[data-bm-fin="' + k + '"]');
@@ -101,35 +104,13 @@
                 next.finance.inputs[k] = el.type === 'checkbox' ? el.checked : (el.value === '' ? null : el.value);
             });
             next.finance.inputs.debt_to_revenue = null;
+            next.finance.score_overrides = {};
             ['q1_seasonal_loss_explained'].forEach(function (k) {
                 const el = root.querySelector('[data-bm-fin-flag="' + k + '"]');
                 next.finance.inputs[k] = !!(el && el.checked);
             });
-            // Галочки «0% с объяснением» учитываем только если показаны у метрики
             next.finance.inputs.profitability_explained_zero = false;
             next.finance.inputs.roe_explained_zero = false;
-            const tpExplain = root.querySelector('[data-bm-zero-explain="total_profitability"]');
-            if (tpExplain && !tpExplain.hidden) {
-                const el = tpExplain.querySelector('[data-bm-fin-flag="profitability_explained_zero"]');
-                next.finance.inputs.profitability_explained_zero = !!(el && el.checked);
-            }
-            const roeExplain = root.querySelector('[data-bm-zero-explain="roe"]');
-            if (roeExplain && !roeExplain.hidden) {
-                const el = roeExplain.querySelector('[data-bm-fin-flag="roe_explained_zero"]');
-                next.finance.inputs.roe_explained_zero = !!(el && el.checked);
-            }
-
-            // finance score overrides
-            next.finance.score_overrides = next.finance.score_overrides || {};
-            Object.keys(rules.finance_metrics || {}).forEach(function (id) {
-                const el = root.querySelector('[data-bm-fin-score="' + id + '"]');
-                if (!el) return;
-                if (el.value === '') {
-                    delete next.finance.score_overrides[id];
-                } else {
-                    next.finance.score_overrides[id] = el.value;
-                }
-            });
 
             // business
             Object.keys(rules.business_metrics || {}).forEach(function (id) {
@@ -138,10 +119,7 @@
                 if (!next.business[id]) next.business[id] = { value: null, source: 'manual', score_override: null };
                 next.business[id].value = el.value === '' ? null : el.value;
                 next.business[id].source = 'manual';
-                const ov = root.querySelector('[data-bm-biz-score="' + id + '"]');
-                if (ov) {
-                    next.business[id].score_override = ov.value === '' ? null : ov.value;
-                }
+                next.business[id].score_override = null;
             });
 
             // judgment
@@ -149,10 +127,12 @@
             const reason = root.querySelector('[data-bm-judgment="upgrade_downgrade_reason"]');
             const force = root.querySelector('[data-bm-judgment="force_not_good"]');
             const negEq = root.querySelector('[data-bm-judgment="negative_equity"]');
+            const est = root.querySelector('[data-bm-judgment="established_rating"]');
             next.judgment.comment = comment ? comment.value : '';
             next.judgment.upgrade_downgrade_reason = reason ? reason.value : '';
             next.judgment.force_not_good = !!(force && force.checked);
             next.judgment.negative_equity = !!(negEq && negEq.checked);
+            next.judgment.established_rating = est ? est.value : '';
 
             state = next;
             return next;
@@ -192,6 +172,11 @@
                 : (dirty ? 'черновик · не сохранено' : 'черновик');
             const ratingText = incomplete ? '—' : (r.rating || '—');
             const posText = r.position_label || '';
+            const calcRating = r.calculated_rating || '';
+            let ratingSub = esc(posText) + (r.hard_stop ? ' · стоп' : '');
+            if (!incomplete && calcRating && String(calcRating) !== String(ratingText)) {
+                ratingSub += ' · расчётный ' + esc(calcRating);
+            }
             box.innerHTML = `
                 <div class="bm-kpi bm-kpi-score">
                     <div class="label">Финансы</div>
@@ -209,7 +194,7 @@
                 <div class="bm-kpi bm-kpi-rating ${posClass}">
                     <div class="label">Рейтинг</div>
                     <div class="value">${esc(ratingText)}</div>
-                    <div class="meta">${esc(posText)}${r.hard_stop ? ' · стоп' : ''}</div>
+                    <div class="meta">${ratingSub}</div>
                 </div>`;
         }
 
@@ -270,24 +255,6 @@
                 }
             });
 
-            function isZeroPct(v) {
-                return v != null && v !== '' && !Number.isNaN(Number(v)) && Math.abs(Number(v)) < 0.00001;
-            }
-            [
-                { id: 'total_profitability', flag: 'profitability_explained_zero' },
-                { id: 'roe', flag: 'roe_explained_zero' }
-            ].forEach(function (item) {
-                const wrap = root.querySelector('[data-bm-zero-explain="' + item.id + '"]');
-                if (!wrap) return;
-                const m = fin[item.id] || {};
-                const show = isZeroPct(m.value);
-                wrap.hidden = !show;
-                if (!show) {
-                    const cb = wrap.querySelector('[data-bm-fin-flag="' + item.flag + '"]');
-                    if (cb) cb.checked = false;
-                }
-            });
-
             const biz = (evaluated.business && evaluated.business.metrics) || {};
             Object.keys(biz).forEach(function (id) {
                 const pill = root.querySelector('[data-bm-biz-pill="' + id + '"]');
@@ -314,28 +281,27 @@
                 const items = stopByGroup[groupId];
                 if (!items || !items.length) return '';
                 const title = stopGroupLabels[groupId] || groupId;
-                const isSingle = items.length === 1;
+                const isMulti = items.length > 1;
                 const cards = items.map(function (sf) {
                     const row = (state.stop_factors || []).find(function (x) { return x.code === sf.code; }) || {};
                     const on = !!row.triggered;
                     const cond = !sf.mandatory;
                     const id = 'bm-stop-' + String(sf.code).replace(/[^a-zA-Z0-9_-]/g, '_');
-                    const label = isSingle ? title : sf.label;
                     return `
                     <div class="bm-stop-item ${on ? 'is-on' : ''} ${cond ? 'is-conditional' : ''}">
                         <label class="bm-stop-head" for="${esc(id)}">
                             <input id="${esc(id)}" type="checkbox" data-bm-stop="${esc(sf.code)}" ${on ? 'checked' : ''}>
-                            <span class="title">${esc(label)}</span>
+                            <span class="title">${esc(sf.label)}</span>
                         </label>
                         <textarea data-bm-stop-comment="${esc(sf.code)}" rows="2" placeholder="Комментарий">${esc(row.comment || '')}</textarea>
                     </div>`;
                 }).join('');
-                if (isSingle) {
-                    return `<div class="bm-stop-group bm-stop-group-single"><div class="bm-stop-grid">${cards}</div></div>`;
-                }
+                const heading = isMulti
+                    ? `<h6 class="bm-stop-group-title">${esc(title)}</h6>`
+                    : '';
                 return `
-                <div class="bm-stop-group">
-                    <h6 class="bm-stop-group-title">${esc(title)}</h6>
+                <div class="bm-stop-group${isMulti ? '' : ' bm-stop-group-single'}">
+                    ${heading}
                     <div class="bm-stop-grid">${cards}</div>
                 </div>`;
             }).join('');
@@ -344,8 +310,13 @@
             const locked = isLocked();
             const finInputsHtml = `
                 <div class="bm-inputs">
-                    <div><label>Выручка, руб</label><input data-bm-fin="revenue" inputmode="decimal" value="${esc(numOrEmpty(inputs.revenue))}"></div>
-                    <div><label>Чистая прибыль, руб</label><input data-bm-fin="net_profit" inputmode="decimal" value="${esc(numOrEmpty(inputs.net_profit))}"></div>
+                    <div><label>Выручка за текущий период, руб</label><input data-bm-fin="revenue" inputmode="decimal" value="${esc(numOrEmpty(inputs.revenue))}"></div>
+                    <div><label>Выручка за последний завершённый год, руб</label><input data-bm-fin="revenue_last_year" inputmode="decimal" value="${esc(numOrEmpty(inputs.revenue_last_year))}"></div>
+                    <div><label>Чистая прибыль (текущий период), руб</label><input data-bm-fin="net_profit" inputmode="decimal" value="${esc(numOrEmpty(inputs.net_profit))}"></div>
+                    <div><label>Чистая прибыль предыдущего года, руб</label><input data-bm-fin="prior_year_net_profit" inputmode="decimal" value="${esc(numOrEmpty(inputs.prior_year_net_profit))}"></div>
+                    <div><label>Доходы от участия в других организациях, руб</label><input data-bm-fin="income_from_participation" inputmode="decimal" value="${esc(numOrEmpty(inputs.income_from_participation))}"></div>
+                    <div><label>Проценты к получению, руб</label><input data-bm-fin="interest_receivable" inputmode="decimal" value="${esc(numOrEmpty(inputs.interest_receivable))}"></div>
+                    <div><label>Прочие доходы, руб</label><input data-bm-fin="other_income" inputmode="decimal" value="${esc(numOrEmpty(inputs.other_income))}"></div>
                     <div><label>Собственные средства (СК), руб</label><input data-bm-fin="equity" inputmode="decimal" value="${esc(numOrEmpty(inputs.equity))}"></div>
                     <div><label>Текущие активы, руб</label><input data-bm-fin="current_assets" inputmode="decimal" value="${esc(numOrEmpty(inputs.current_assets))}"></div>
                     <div><label>Текущие обязательства, руб</label><input data-bm-fin="current_liabilities" inputmode="decimal" value="${esc(numOrEmpty(inputs.current_liabilities))}"></div>
@@ -355,6 +326,15 @@
                     <div><label>Кредиторская задолженность, руб</label><input data-bm-fin="accounts_payable" inputmode="decimal" value="${esc(numOrEmpty(inputs.accounts_payable))}"></div>
                     <div><label>Прочие краткосрочные обязательства, руб</label><input data-bm-fin="other_short_liabilities" inputmode="decimal" value="${esc(numOrEmpty(inputs.other_short_liabilities))}"></div>
                     <div><label>Долгосрочные займы, руб</label><input data-bm-fin="long_term_borrowings" inputmode="decimal" value="${esc(numOrEmpty(inputs.long_term_borrowings))}"></div>
+                    <div><label>Отчётный период</label>
+                        <select data-bm-fin="reporting_period">
+                            <option value="annual" ${!inputs.reporting_period || inputs.reporting_period === 'annual' ? 'selected' : ''}>Год / иной период</option>
+                            <option value="q1" ${inputs.reporting_period === 'q1' ? 'selected' : ''}>1 квартал</option>
+                            <option value="q2" ${inputs.reporting_period === 'q2' ? 'selected' : ''}>2 квартал</option>
+                            <option value="q3" ${inputs.reporting_period === 'q3' ? 'selected' : ''}>9 месяцев / 3 кв.</option>
+                            <option value="9m" ${inputs.reporting_period === '9m' ? 'selected' : ''}>9 месяцев</option>
+                        </select>
+                    </div>
                     <div><label>Отрасль</label>
                         <select data-bm-fin="industry">
                             <option value="default" ${inputs.industry === 'default' || !inputs.industry ? 'selected' : ''}>Обычная</option>
@@ -364,35 +344,22 @@
                     </div>
                     <div>
                         <label>&nbsp;</label>
-                        <label class="bm-inline-check"><input type="checkbox" data-bm-fin-flag="q1_seasonal_loss_explained" ${inputs.q1_seasonal_loss_explained ? 'checked' : ''}> Убыток 1 кв. (сезонность)</label>
+                        <label class="bm-inline-check"><input type="checkbox" data-bm-fin-flag="q1_seasonal_loss_explained" ${inputs.q1_seasonal_loss_explained ? 'checked' : ''}> Убыток 1 кв. — сезонность</label>
+                    </div>
+                    <div style="grid-column:1/-1">
+                        <label>Комментарий к убытку 1 кв. (обязателен для правила сезонности)</label>
+                        <input data-bm-fin="q1_seasonal_comment" value="${esc(inputs.q1_seasonal_comment || '')}" placeholder="Обоснование сезонности">
                     </div>
                 </div>`;
 
             const finMetrics = rules.finance_metrics || {};
-            const overrides = (state.finance && state.finance.score_overrides) || {};
             const finMetricsHtml = Object.keys(finMetrics).map(function (id) {
                 const m = finMetrics[id];
-                const ov = overrides[id];
-                let zeroExplain = '';
-                if (id === 'total_profitability') {
-                    zeroExplain = `<div class="bm-checks mt-1" data-bm-zero-explain="total_profitability" hidden>
-                        <label><input type="checkbox" data-bm-fin-flag="profitability_explained_zero" ${inputs.profitability_explained_zero ? 'checked' : ''}> 0% с объяснением</label>
-                    </div>`;
-                } else if (id === 'roe') {
-                    zeroExplain = `<div class="bm-checks mt-1" data-bm-zero-explain="roe" hidden>
-                        <label><input type="checkbox" data-bm-fin-flag="roe_explained_zero" ${inputs.roe_explained_zero ? 'checked' : ''}> 0% с объяснением</label>
-                    </div>`;
-                }
                 return `
-                <div class="bm-metric">
+                <div class="bm-metric bm-metric-compact">
                     <div>
                         <div class="name">${esc(m.label)}</div>
                         <div class="hint" data-bm-fin-note="${esc(id)}"></div>
-                        ${zeroExplain}
-                    </div>
-                    <div>
-                        <label>Ручной балл</label>
-                        <input data-bm-fin-score="${esc(id)}" inputmode="decimal" placeholder="авто" value="${esc(numOrEmpty(ov))}">
                     </div>
                     <div>
                         <label>Балл</label>
@@ -408,7 +375,7 @@
                     return `<option value="${esc(o.value)}" ${String(row.value) === String(o.value) ? 'selected' : ''}>${esc(o.label)} (${o.score})</option>`;
                 }).join('');
                 return `
-                <div class="bm-metric">
+                <div class="bm-metric bm-metric-compact">
                     <div>
                         <div class="name">${esc(m.label)}</div>
                         <div class="hint">${esc(m.hint || '')}${m.manual_only ? ' · только вручную' : ''}</div>
@@ -421,10 +388,6 @@
                         </div>
                     </div>
                     <div>
-                        <label>Ручной балл</label>
-                        <input data-bm-biz-score="${esc(id)}" inputmode="decimal" placeholder="авто" value="${esc(numOrEmpty(row.score_override))}">
-                    </div>
-                    <div>
                         <label>Балл</label>
                         <div><span class="score-pill" data-bm-biz-pill="${esc(id)}">—</span></div>
                     </div>
@@ -432,6 +395,9 @@
             }).join('');
 
             const j = state.judgment || {};
+            const ratingOpts = (rules.rating_scale || []).map(function (row) {
+                return `<option value="${esc(row.rating)}" ${String(j.established_rating || '') === String(row.rating) ? 'selected' : ''}>${esc(row.rating)} — ${esc(row.category)}</option>`;
+            }).join('');
             const hist = (history || []).slice(0, 8).map(function (h) {
                 return `v${h.version} · ${h.status} · ${h.rating || '—'} · ${h.total_score != null ? h.total_score : '—'}`;
             }).join(' · ');
@@ -475,11 +441,19 @@
                 </div>
 
                 <div class="bm-section" data-bm-section="judgment">
-                    <div class="bm-section-head"><h5>4. Профсуждение</h5><span class="meta">комментарий менеджера</span></div>
+                    <div class="bm-section-head"><h5>4. Профсуждение</h5><span class="meta">расчётный и установленный рейтинг</span></div>
                     <div class="bm-section-body bm-judgment">
                         <div class="mb-3">
                             <label class="form-label small text-muted fw-bold">Комментарий</label>
                             <textarea data-bm-judgment="comment" placeholder="Профессиональное суждение по оценке">${esc(j.comment || '')}</textarea>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label small text-muted fw-bold">Установленный рейтинг</label>
+                            <select data-bm-judgment="established_rating">
+                                <option value="">— как расчётный —</option>
+                                ${ratingOpts}
+                            </select>
+                            <div class="hint mt-1">По методике: расчётный рейтинг можно скорректировать с обоснованием.</div>
                         </div>
                         <div class="mb-3">
                             <label class="form-label small text-muted fw-bold">Основания повышения / понижения рейтинга</label>
@@ -579,7 +553,7 @@
                             renderBanners();
                             renderMetricScores();
                             if (preview.evaluated.result && preview.evaluated.result.incomplete) {
-                                throw new Error('Нельзя зафиксировать: заполните все показатели финансов и бизнес-риска (или укажите ручной балл).');
+                                throw new Error('Нельзя зафиксировать: заполните все показатели финансов и бизнес-риска.');
                             }
                         }
                         if (!window.confirm('Зафиксировать текущую оценку как официальную версию по заявке?')) return;
