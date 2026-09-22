@@ -2,8 +2,8 @@
 /**
  * Вкладка «Оценка по методике».
  * Ожидает:
- * - $caseId (int) — один кейс (ЛК банка), или
- * - $bmCases (list) — список кейсов для выбора (карточка заявки у сотрудников)
+ * - $caseId (int) — один банк (ЛК банка), или
+ * - $bmCases (list) — список банков/продуктов для выбора (карточка заявки у сотрудников)
  * Опционально: $bmTabId, $bmRootId
  */
 declare(strict_types=1);
@@ -16,6 +16,13 @@ $bmRootId = (string) ($bmRootId ?? 'bankMethodologyRoot');
 if ($bmCaseId <= 0 && $bmCases !== []) {
     $bmCaseId = (int) ($bmCases[0]['id'] ?? 0);
 }
+
+$bmStatusLabel = static function (string $status): string {
+    if (!function_exists('finbank_case_status_label_manager')) {
+        return $status;
+    }
+    return finbank_case_status_label_manager($status);
+};
 ?>
 <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-2 mb-3">
     <div>
@@ -24,18 +31,18 @@ if ($bmCaseId <= 0 && $bmCases !== []) {
     </div>
     <?php if (count($bmCases) > 1): ?>
         <div style="min-width: 240px;">
-            <label class="form-label small text-muted mb-1">Кейс банка</label>
+            <label class="form-label small text-muted mb-1">Банк / продукт</label>
             <select class="form-select form-select-sm" id="<?= htmlspecialchars($bmRootId) ?>CaseSelect">
                 <?php foreach ($bmCases as $c): ?>
                     <?php
                     $cid = (int) ($c['id'] ?? 0);
                     $label = trim((string) ($c['bank_name'] ?? '') . ' · ' . (string) ($c['product_name'] ?? ''));
-                    if ($label === '·') {
-                        $label = 'Кейс #' . $cid;
+                    if ($label === '·' || $label === '') {
+                        $label = 'Банк #' . $cid;
                     }
                     $st = (string) ($c['status'] ?? '');
                     if ($st !== '') {
-                        $label .= ' (' . $st . ')';
+                        $label .= ' (' . $bmStatusLabel($st) . ')';
                     }
                     ?>
                     <option value="<?= $cid ?>" <?= $cid === $bmCaseId ? 'selected' : '' ?>><?= htmlspecialchars($label) ?></option>
@@ -45,7 +52,7 @@ if ($bmCaseId <= 0 && $bmCases !== []) {
     <?php endif; ?>
 </div>
 <?php if ($bmCaseId <= 0): ?>
-    <div class="bm-empty text-muted">Нет кейсов «Работа с банком» по этой заявке. Создайте пакет на странице продукта — тогда здесь появится оценка по методике.</div>
+    <div class="bm-empty text-muted">По этой заявке ещё нет работы с банком. Откройте продукт → вкладка «Работа с банком» — после этого здесь можно будет вести оценку по методике.</div>
 <?php else: ?>
 <div id="<?= htmlspecialchars($bmRootId) ?>"></div>
 <script>
