@@ -117,8 +117,6 @@ require_once 'header.php';
 <?php
 $showMethodologyTab = finbuild_can_view_methodology($currentUser);
 if ($showMethodologyTab):
-    require_once __DIR__ . '/includes/bank_portal.php';
-    $bmCases = finbank_application_bank_cases_for_methodology($pdo, (int) $applicationId);
 ?>
 <link rel="stylesheet" href="assets/css/bank_methodology.css?v=<?= (int) (@filemtime(__DIR__ . '/assets/css/bank_methodology.css') ?: time()) ?>">
 <?php endif; ?>
@@ -1884,7 +1882,7 @@ body.app-chat-open .app-chat-fab { display: none; }
             <?php if (!empty($showMethodologyTab)): ?>
             <li class="nav-item" role="presentation">
                 <button class="nav-link" id="methodology-tab" data-bs-toggle="tab" data-bs-target="#methodology" type="button" role="tab">
-                    <i class="bi bi-clipboard2-check me-2"></i><span class="tab-label">Методика</span>
+                    <i class="bi bi-clipboard2-check me-2"></i><span class="tab-label">Банковская методика</span>
                 </button>
             </li>
             <?php endif; ?>
@@ -3254,7 +3252,6 @@ body.app-chat-open .app-chat-fab { display: none; }
     <?php
     $bmTabId = 'methodology-tab';
     $bmRootId = 'appMethodologyRoot';
-    $caseId = 0;
     require __DIR__ . '/includes/partials/bank_methodology_tab.php';
     ?>
 </div>

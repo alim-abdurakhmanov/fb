@@ -49,9 +49,9 @@ function finbuild_access_permission_defs(): array
             'applicable_roles' => ['director', 'manager', 'case_manager', 'analyst'],
         ],
         'methodology.view' => [
-            'label' => 'Методика',
+            'label' => 'Банковская методика',
             'group' => 'Заявки',
-            'hint' => 'Вкладка «Методика» на карточке заявки: оценка по банковской методике (отдельно от FinScore). В ЛК банка вкладка доступна всегда.',
+            'hint' => 'Вкладка «Банковская методика» на карточке заявки. В ЛК банка вкладка доступна всегда.',
             'applicable_roles' => ['director', 'manager', 'case_manager', 'analyst'],
         ],
         'structure.view' => [
@@ -388,7 +388,7 @@ function finbuild_can_work_with_banks(?array $user = null): bool
     return finbuild_can('banks.work', $user);
 }
 
-/** Вкладка «Методика» на карточке заявки (сотрудники). ЛК банка — отдельно, всегда. */
+/** Вкладка «Банковская методика» на карточке заявки (сотрудники). ЛК банка — всегда. */
 function finbuild_can_view_methodology(?array $user = null): bool
 {
     return finbuild_can('methodology.view', $user);

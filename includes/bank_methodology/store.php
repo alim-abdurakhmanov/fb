@@ -1,6 +1,6 @@
 <?php
 /**
- * Хранение оценок по банковской методике (на кейс ЛК банка).
+ * Хранение оценок по банковской методике (на заявку).
  */
 declare(strict_types=1);
 
@@ -15,7 +15,7 @@ function bank_methodology_ensure_table(PDO $pdo): void
     $pdo->exec(
         "CREATE TABLE IF NOT EXISTS `bank_case_methodology_assessments` (
           `id` int UNSIGNED NOT NULL AUTO_INCREMENT,
-          `bank_case_id` int UNSIGNED NOT NULL,
+          `application_id` int UNSIGNED NOT NULL,
           `version` int UNSIGNED NOT NULL DEFAULT 1,
           `status` varchar(20) NOT NULL DEFAULT 'draft',
           `state_json` longtext NOT NULL,
@@ -31,27 +31,87 @@ function bank_methodology_ensure_table(PDO $pdo): void
           `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
           `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
           PRIMARY KEY (`id`),
-          UNIQUE KEY `uniq_case_version` (`bank_case_id`, `version`),
-          KEY `idx_case_status` (`bank_case_id`, `status`),
-          KEY `idx_case_updated` (`bank_case_id`, `updated_at`)
+          UNIQUE KEY `uniq_app_version` (`application_id`, `version`),
+          KEY `idx_app_status` (`application_id`, `status`),
+          KEY `idx_app_updated` (`application_id`, `updated_at`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
     );
+    bank_methodology_migrate_legacy_case_column($pdo);
     $done = true;
+}
+
+/** Миграция со схемы bank_case_id → application_id (если таблица уже была создана). */
+function bank_methodology_migrate_legacy_case_column(PDO $pdo): void
+{
+    try {
+        $cols = $pdo->query('SHOW COLUMNS FROM bank_case_methodology_assessments')->fetchAll(PDO::FETCH_COLUMN) ?: [];
+    } catch (Throwable $e) {
+        return;
+    }
+    $hasApp = in_array('application_id', $cols, true);
+    $hasCase = in_array('bank_case_id', $cols, true);
+    if ($hasApp && !$hasCase) {
+        return;
+    }
+    if (!$hasApp && $hasCase) {
+        $pdo->exec('ALTER TABLE bank_case_methodology_assessments ADD COLUMN `application_id` int UNSIGNED NULL AFTER `id`');
+        try {
+            $pdo->exec(
+                'UPDATE bank_case_methodology_assessments a
+                 INNER JOIN application_product_bank_cases c ON c.id = a.bank_case_id
+                 INNER JOIN application_products ap ON ap.id = c.application_product_id
+                 SET a.application_id = ap.application_id
+                 WHERE a.application_id IS NULL'
+            );
+        } catch (Throwable $e) {
+            // таблицы банковского портала может ещё не быть
+        }
+        $pdo->exec('DELETE FROM bank_case_methodology_assessments WHERE application_id IS NULL');
+        $pdo->exec('ALTER TABLE bank_case_methodology_assessments MODIFY `application_id` int UNSIGNED NOT NULL');
+        try {
+            $pdo->exec('ALTER TABLE bank_case_methodology_assessments DROP INDEX `uniq_case_version`');
+        } catch (Throwable $e) {
+        }
+        try {
+            $pdo->exec('ALTER TABLE bank_case_methodology_assessments DROP INDEX `idx_case_status`');
+        } catch (Throwable $e) {
+        }
+        try {
+            $pdo->exec('ALTER TABLE bank_case_methodology_assessments DROP INDEX `idx_case_updated`');
+        } catch (Throwable $e) {
+        }
+        try {
+            $pdo->exec('ALTER TABLE bank_case_methodology_assessments DROP COLUMN `bank_case_id`');
+        } catch (Throwable $e) {
+        }
+        try {
+            $pdo->exec('ALTER TABLE bank_case_methodology_assessments ADD UNIQUE KEY `uniq_app_version` (`application_id`, `version`)');
+        } catch (Throwable $e) {
+        }
+        try {
+            $pdo->exec('ALTER TABLE bank_case_methodology_assessments ADD KEY `idx_app_status` (`application_id`, `status`)');
+        } catch (Throwable $e) {
+        }
+        try {
+            $pdo->exec('ALTER TABLE bank_case_methodology_assessments ADD KEY `idx_app_updated` (`application_id`, `updated_at`)');
+        } catch (Throwable $e) {
+        }
+    }
 }
 
 /**
  * @return array<string,mixed>|null
  */
-function bank_methodology_fetch_latest(PDO $pdo, int $bankCaseId): ?array
+function bank_methodology_fetch_latest(PDO $pdo, int $applicationId): ?array
 {
     bank_methodology_ensure_table($pdo);
     $stmt = $pdo->prepare(
         'SELECT * FROM bank_case_methodology_assessments
-         WHERE bank_case_id = ?
+         WHERE application_id = ?
          ORDER BY version DESC
          LIMIT 1'
     );
-    $stmt->execute([$bankCaseId]);
+    $stmt->execute([$applicationId]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
     return $row ? bank_methodology_hydrate_row($row) : null;
 }
@@ -59,16 +119,16 @@ function bank_methodology_fetch_latest(PDO $pdo, int $bankCaseId): ?array
 /**
  * @return array<string,mixed>|null
  */
-function bank_methodology_fetch_latest_final(PDO $pdo, int $bankCaseId): ?array
+function bank_methodology_fetch_latest_final(PDO $pdo, int $applicationId): ?array
 {
     bank_methodology_ensure_table($pdo);
     $stmt = $pdo->prepare(
         'SELECT * FROM bank_case_methodology_assessments
-         WHERE bank_case_id = ? AND status = ?
+         WHERE application_id = ? AND status = ?
          ORDER BY version DESC
          LIMIT 1'
     );
-    $stmt->execute([$bankCaseId, 'final']);
+    $stmt->execute([$applicationId, 'final']);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
     return $row ? bank_methodology_hydrate_row($row) : null;
 }
@@ -76,18 +136,18 @@ function bank_methodology_fetch_latest_final(PDO $pdo, int $bankCaseId): ?array
 /**
  * @return list<array<string,mixed>>
  */
-function bank_methodology_fetch_history(PDO $pdo, int $bankCaseId, int $limit = 20): array
+function bank_methodology_fetch_history(PDO $pdo, int $applicationId, int $limit = 20): array
 {
     bank_methodology_ensure_table($pdo);
     $stmt = $pdo->prepare(
         'SELECT id, version, status, total_score, rating, position_code, hard_stop,
                 created_by, updated_by, finalized_by, finalized_at, created_at, updated_at
          FROM bank_case_methodology_assessments
-         WHERE bank_case_id = ?
+         WHERE application_id = ?
          ORDER BY version DESC
          LIMIT ' . (int) $limit
     );
-    $stmt->execute([$bankCaseId]);
+    $stmt->execute([$applicationId]);
     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
     return array_map(static function (array $r): array {
         return [
@@ -124,7 +184,7 @@ function bank_methodology_hydrate_row(array $row): array
     }
     return [
         'id' => (int) $row['id'],
-        'bank_case_id' => (int) $row['bank_case_id'],
+        'application_id' => (int) ($row['application_id'] ?? 0),
         'version' => (int) $row['version'],
         'status' => (string) $row['status'],
         'state' => $state,
@@ -148,7 +208,7 @@ function bank_methodology_hydrate_row(array $row): array
  * @param array<string,mixed> $state
  * @return array<string,mixed>
  */
-function bank_methodology_save_draft(PDO $pdo, int $bankCaseId, int $userId, array $state): array
+function bank_methodology_save_draft(PDO $pdo, int $applicationId, int $userId, array $state): array
 {
     bank_methodology_ensure_table($pdo);
     $evaluated = bank_methodology_evaluate($state);
@@ -159,7 +219,7 @@ function bank_methodology_save_draft(PDO $pdo, int $bankCaseId, int $userId, arr
         'business' => $evaluated['business'],
     ];
 
-    $latest = bank_methodology_fetch_latest($pdo, $bankCaseId);
+    $latest = bank_methodology_fetch_latest($pdo, $applicationId);
     $pdo->beginTransaction();
     try {
         if ($latest && $latest['status'] === 'draft') {
@@ -185,11 +245,11 @@ function bank_methodology_save_draft(PDO $pdo, int $bankCaseId, int $userId, arr
             $nextVersion = $latest ? ((int) $latest['version'] + 1) : 1;
             $stmt = $pdo->prepare(
                 'INSERT INTO bank_case_methodology_assessments
-                 (bank_case_id, version, status, state_json, result_json, total_score, rating, position_code, hard_stop, created_by, updated_by)
+                 (application_id, version, status, state_json, result_json, total_score, rating, position_code, hard_stop, created_by, updated_by)
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
             );
             $stmt->execute([
-                $bankCaseId,
+                $applicationId,
                 $nextVersion,
                 'draft',
                 json_encode($normState, JSON_UNESCAPED_UNICODE),
@@ -212,9 +272,10 @@ function bank_methodology_save_draft(PDO $pdo, int $bankCaseId, int $userId, arr
         throw $e;
     }
 
-    $saved = bank_methodology_fetch_latest($pdo, $bankCaseId);
+    $saved = bank_methodology_fetch_latest($pdo, $applicationId);
     return $saved ?? [
         'id' => $id,
+        'application_id' => $applicationId,
         'version' => $version,
         'status' => 'draft',
         'state' => $normState,
@@ -228,13 +289,13 @@ function bank_methodology_save_draft(PDO $pdo, int $bankCaseId, int $userId, arr
  * @param array<string,mixed>|null $state
  * @return array<string,mixed>
  */
-function bank_methodology_finalize(PDO $pdo, int $bankCaseId, int $userId, ?array $state = null): array
+function bank_methodology_finalize(PDO $pdo, int $applicationId, int $userId, ?array $state = null): array
 {
     bank_methodology_ensure_table($pdo);
     if ($state !== null) {
-        bank_methodology_save_draft($pdo, $bankCaseId, $userId, $state);
+        bank_methodology_save_draft($pdo, $applicationId, $userId, $state);
     }
-    $latest = bank_methodology_fetch_latest($pdo, $bankCaseId);
+    $latest = bank_methodology_fetch_latest($pdo, $applicationId);
     if (!$latest) {
         throw new RuntimeException('Нет черновика для фиксации');
     }
@@ -256,7 +317,7 @@ function bank_methodology_finalize(PDO $pdo, int $bankCaseId, int $userId, ?arra
     );
     $stmt->execute(['final', $userId, $userId, $latest['id'], 'draft']);
 
-    $saved = bank_methodology_fetch_latest($pdo, $bankCaseId);
+    $saved = bank_methodology_fetch_latest($pdo, $applicationId);
     if (!$saved) {
         throw new RuntimeException('Не удалось зафиксировать оценку');
     }

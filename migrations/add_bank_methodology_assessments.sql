@@ -1,9 +1,9 @@
--- Оценка по внутрибанковской методике экспресс-БГ (отдельно от FinScore).
--- Одна версия на кейс; draft обновляется in-place, final фиксируется.
+-- Оценка по банковской методике экспресс-БГ (на заявку).
+-- Draft обновляется in-place, final фиксируется новой версией при следующем черновике.
 
 CREATE TABLE IF NOT EXISTS `bank_case_methodology_assessments` (
   `id` int UNSIGNED NOT NULL AUTO_INCREMENT,
-  `bank_case_id` int UNSIGNED NOT NULL,
+  `application_id` int UNSIGNED NOT NULL,
   `version` int UNSIGNED NOT NULL DEFAULT 1,
   `status` varchar(20) NOT NULL DEFAULT 'draft',
   `state_json` longtext NOT NULL,
@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS `bank_case_methodology_assessments` (
   `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
-  UNIQUE KEY `uniq_case_version` (`bank_case_id`, `version`),
-  KEY `idx_case_status` (`bank_case_id`, `status`),
-  KEY `idx_case_updated` (`bank_case_id`, `updated_at`)
+  UNIQUE KEY `uniq_app_version` (`application_id`, `version`),
+  KEY `idx_app_status` (`application_id`, `status`),
+  KEY `idx_app_updated` (`application_id`, `updated_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
