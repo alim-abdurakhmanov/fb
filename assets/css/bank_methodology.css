@@ -335,8 +335,14 @@
     background: #fbfcfd;
 }
 
+.bm-metric-compact {
+    grid-template-columns: 1fr auto;
+    align-items: start;
+}
+
 @media (max-width: 768px) {
-    .bm-metric {
+    .bm-metric,
+    .bm-metric-compact {
         grid-template-columns: 1fr;
     }
 }

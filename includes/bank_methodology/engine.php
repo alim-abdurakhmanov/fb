@@ -37,8 +37,13 @@ function bank_methodology_empty_state(): array
         'stop_factors' => $stops,
         'finance' => [
             'inputs' => [
-                'revenue' => null,
+                'revenue' => null, // выручка текущего периода (для рентабельности)
+                'revenue_last_year' => null, // выручка за последний завершённый год (для долг/выручка)
                 'net_profit' => null,
+                'prior_year_net_profit' => null, // прибыль предыдущего года (для правила убытка 1 кв.)
+                'income_from_participation' => null, // стр.6 ОПУ — для аналога выручки
+                'interest_receivable' => null, // стр.7
+                'other_income' => null, // стр.9
                 'equity' => null,
                 'current_assets' => null,
                 'current_liabilities' => null,
@@ -50,19 +55,19 @@ function bank_methodology_empty_state(): array
                 'other_short_liabilities' => null,
                 'debt_to_revenue' => null,
                 'industry' => 'default',
+                'reporting_period' => 'annual', // annual|q1|q2|q3|9m
                 'q1_seasonal_loss_explained' => false,
+                'q1_seasonal_comment' => '',
                 'profitability_explained_zero' => false,
                 'roe_explained_zero' => false,
-                'missing_equity' => false,
-                'no_current_liabilities' => false,
-                'no_revenue' => false,
             ],
-            'score_overrides' => [],
+            'score_overrides' => [], // устарело: ручные баллы по метрикам не используются
         ],
         'business' => $business,
         'judgment' => [
             'comment' => '',
             'upgrade_downgrade_reason' => '',
+            'established_rating' => '', // пусто = расчётный; иначе буква из шкалы
             'force_not_good' => false,
             'negative_equity' => false,
         ],
@@ -125,7 +130,7 @@ function bank_methodology_evaluate(array $state): array
 
     $warnings = [];
     if ($incomplete) {
-        $warnings[] = 'Недостаточно данных для итогового рейтинга: заполните все финансовые и бизнес-показатели (или задайте ручной балл).';
+        $warnings[] = 'Недостаточно данных для итогового рейтинга: заполните все финансовые и бизнес-показатели.';
         $ratingInfo = [
             'rating' => null,
             'category' => null,
@@ -137,16 +142,44 @@ function bank_methodology_evaluate(array $state): array
         $position = $ratingInfo['position'];
     }
 
+    $calculatedRating = $ratingInfo['rating'];
+    $calculatedPosition = $position;
+
     $equity = $state['finance']['inputs']['equity'] ?? null;
     $negativeEquity = !empty($state['judgment']['negative_equity'])
         || ($equity !== null && $equity !== '' && (float) $equity < 0);
     if (!$incomplete && $negativeEquity && $position === 'good') {
+        $ratingInfo = bank_methodology_cap_rating_to_average($ratingInfo, $rules);
         $position = 'average';
-        $warnings[] = 'Отрицательный собственный капитал: положение не может быть «Хорошим» (максимум «Среднее»).';
+        $warnings[] = 'Отрицательный собственный капитал: положение не может быть «Хорошим» (максимум «Среднее», рейтинг не выше B-).';
     }
     if (!$incomplete && !empty($state['judgment']['force_not_good']) && $position === 'good') {
+        $ratingInfo = bank_methodology_cap_rating_to_average($ratingInfo, $rules);
         $position = 'average';
         $warnings[] = 'Отмечены обстоятельства, исключающие оценку «Хорошее» (по методике / 590-П).';
+    }
+
+    // Установленный рейтинг (профсуждение) — поверх расчётного
+    $establishedRaw = trim((string) ($state['judgment']['established_rating'] ?? ''));
+    $establishedApplied = false;
+    if (!$incomplete && $establishedRaw !== '') {
+        $mapped = bank_methodology_rating_by_letter($establishedRaw, $rules);
+        if ($mapped !== null) {
+            if ($negativeEquity && $mapped['position'] === 'good') {
+                $mapped = bank_methodology_cap_rating_to_average($mapped, $rules);
+                $warnings[] = 'Установленный рейтинг ограничен из‑за отрицательного СК (не выше B- / «Среднее»).';
+            }
+            if (!empty($state['judgment']['force_not_good']) && $mapped['position'] === 'good') {
+                $mapped = bank_methodology_cap_rating_to_average($mapped, $rules);
+            }
+            $ratingInfo = $mapped;
+            $position = $mapped['position'];
+            $establishedApplied = true;
+            $reason = trim((string) ($state['judgment']['upgrade_downgrade_reason'] ?? ''));
+            if ($reason === '' && $establishedRaw !== (string) $calculatedRating) {
+                $warnings[] = 'Укажите основания повышения / понижения рейтинга (установленный отличается от расчётного).';
+            }
+        }
     }
 
     $hardStop = $mandatoryStops !== [];
@@ -161,6 +194,9 @@ function bank_methodology_evaluate(array $state): array
             'business_score' => round($businessScore, 2),
             'total_score' => round($total, 2),
             'rating' => $ratingInfo['rating'],
+            'calculated_rating' => $calculatedRating,
+            'calculated_position' => $calculatedPosition,
+            'established_applied' => $establishedApplied,
             'category' => $ratingInfo['category'],
             'position' => $position,
             'position_label' => $positionLabels[$position] ?? $position,
@@ -252,7 +288,6 @@ function bank_methodology_normalize_state(array $state): array
 function bank_methodology_score_finance(array $financeState, array $rules): array
 {
     $inputs = $financeState['inputs'] ?? [];
-    $overrides = is_array($financeState['score_overrides'] ?? null) ? $financeState['score_overrides'] : [];
     $metricsOut = [];
     $total = 0.0;
 
@@ -275,10 +310,6 @@ function bank_methodology_score_finance(array $financeState, array $rules): arra
 
         $source = 'auto';
         $score = $autoScore;
-        if (array_key_exists($id, $overrides) && $overrides[$id] !== null && $overrides[$id] !== '') {
-            $score = bank_methodology_clamp_score((float) $overrides[$id], $metric, $max);
-            $source = 'edited';
-        }
 
         if ($score === null) {
             // Не подставляем 0: иначе пустая форма даёт рейтинг D.
@@ -362,7 +393,13 @@ function bank_methodology_compute_ratios(array $inputs): array
     $out = [];
 
     $revenue = bank_methodology_num($inputs['revenue'] ?? null);
+    $revenueYear = bank_methodology_num($inputs['revenue_last_year'] ?? null);
+    // Совместимость старых черновиков: если годовая выручка не задана — берём текущую
+    if ($revenueYear === null && $revenue !== null) {
+        $revenueYear = $revenue;
+    }
     $profit = bank_methodology_num($inputs['net_profit'] ?? null);
+    $priorYearProfit = bank_methodology_num($inputs['prior_year_net_profit'] ?? null);
     $equity = bank_methodology_num($inputs['equity'] ?? null);
     $ca = bank_methodology_num($inputs['current_assets'] ?? null);
     $cl = bank_methodology_num($inputs['current_liabilities'] ?? null);
@@ -370,35 +407,53 @@ function bank_methodology_compute_ratios(array $inputs): array
     $balance = bank_methodology_num($inputs['balance_total'] ?? null);
     $debtRatioManual = bank_methodology_num($inputs['debt_to_revenue'] ?? null);
 
-    // Общая рентабельность
-    // Явный 0 выручки = отсутствие выручки. Пустое поле — ещё не заполнено (балл «—»).
+    $incomeParticipation = bank_methodology_num($inputs['income_from_participation'] ?? null) ?? 0.0;
+    $interestRecv = bank_methodology_num($inputs['interest_receivable'] ?? null) ?? 0.0;
+    $otherIncome = bank_methodology_num($inputs['other_income'] ?? null) ?? 0.0;
+    $analogRevenue = $incomeParticipation + $interestRecv + $otherIncome;
+
+    $reportingPeriod = (string) ($inputs['reporting_period'] ?? 'annual');
+    $q1Explained = !empty($inputs['q1_seasonal_loss_explained']);
+    $q1Comment = trim((string) ($inputs['q1_seasonal_comment'] ?? ''));
+    $q1SeasonalOk = ($reportingPeriod === 'q1')
+        && $q1Explained
+        && ($priorYearProfit !== null && $priorYearProfit > 0)
+        && ($q1Comment !== '');
+
+    // Общая рентабельность — выручка текущего периода (или аналог при нулевой выручке)
     $tpMetric = $rules['finance_metrics']['total_profitability'];
     $tpValue = null;
     $tpScore = null;
     $tpNote = '';
-    $revenueMissing = ($revenue !== null && abs((float) $revenue) < 0.00001);
-    if ($revenueMissing) {
-        $tpScore = -4.0;
-        $tpNote = 'Отсутствие выручки';
-    } elseif ($revenue !== null && $profit !== null) {
-        $tpValue = ($profit / $revenue) * 100.0;
-        if (abs($tpValue) < 0.00001 && !empty($inputs['profitability_explained_zero'])) {
-            $tpScore = (float) ($tpMetric['explained_zero_score'] ?? 0);
-            $tpNote = '0% с объяснением';
-        } elseif (abs($tpValue) < 0.00001) {
+    $revenueExplicitZero = ($revenue !== null && abs((float) $revenue) < 0.00001);
+    $denom = null;
+    if ($revenueExplicitZero) {
+        if (abs($analogRevenue) > 0.00001) {
+            $denom = $analogRevenue;
+            $tpNote = 'Аналог выручки (доходы от участия + проценты к получению + прочие доходы)';
+        } else {
+            $tpScore = -4.0;
+            $tpNote = 'Отсутствие выручки';
+        }
+    } elseif ($revenue !== null) {
+        $denom = $revenue;
+    }
+
+    if ($tpScore === null && $denom !== null && $profit !== null && abs($denom) > 0.00001) {
+        $tpValue = ($profit / $denom) * 100.0;
+        if (abs($tpValue) < 0.00001) {
             $tpScore = 0.0;
         } else {
             $tpScore = bank_methodology_band_score($tpValue, $tpMetric['bands'], 'default');
         }
-        if (!empty($inputs['q1_seasonal_loss_explained']) && $tpValue < 0) {
+        if ($q1SeasonalOk && $tpValue < 0) {
             $tpScore = 0.0;
-            $tpNote = 'Убыток 1 кв. при сезонности (по методике)';
+            $tpNote = trim(($tpNote !== '' ? $tpNote . '; ' : '') . 'Убыток 1 кв. при сезонности (прибыль прошлого года, комментарий)');
         }
     }
     $out['total_profitability'] = ['value' => $tpValue, 'score' => $tpScore, 'note' => $tpNote];
 
     // ROE
-    // Явный 0 СК = отсутствие собственного капитала. Пустое — не заполнено (балл «—»).
     $roeMetric = $rules['finance_metrics']['roe'];
     $roeValue = null;
     $roeScore = null;
@@ -409,19 +464,19 @@ function bank_methodology_compute_ratios(array $inputs): array
         $roeNote = 'Отсутствие собственного капитала';
     } elseif ($equity !== null && abs((float) $equity) > 0.00001 && $profit !== null) {
         $roeValue = ($profit / $equity) * 100.0;
-        if (abs($roeValue) < 0.00001 && !empty($inputs['roe_explained_zero'])) {
-            $roeScore = (float) ($roeMetric['explained_zero_score'] ?? 0);
-            $roeNote = '0% с объяснением';
-        } elseif (abs($roeValue) < 0.00001) {
+        if (abs($roeValue) < 0.00001) {
             $roeScore = 0.0;
         } else {
             $roeScore = bank_methodology_band_score($roeValue, $roeMetric['bands'], 'default');
+        }
+        if ($q1SeasonalOk && $roeValue < 0) {
+            $roeScore = 0.0;
+            $roeNote = 'Убыток 1 кв. при сезонности (прибыль прошлого года, комментарий)';
         }
     }
     $out['roe'] = ['value' => $roeValue, 'score' => $roeScore, 'note' => $roeNote];
 
     // Ликвидность
-    // Явный 0 текущих обязательств = их отсутствие. Пустое — не заполнено (балл «—»).
     $liqMetric = $rules['finance_metrics']['current_liquidity'];
     $liqValue = null;
     $liqScore = null;
@@ -464,11 +519,7 @@ function bank_methodology_compute_ratios(array $inputs): array
     }
     $out['financial_stability'] = ['value' => $fsValue, 'score' => $fsScore, 'note' => $fsNote];
 
-    // Долг / выручка
-    // Разница = кредиторка + прочие краткосрочные − текущие активы;
-    // если разница ≤ 0: (краткосрочные займы + долгосрочные займы) / выручка;
-    // если разница > 0: (краткосрочные займы + долгосрочные займы + разница) / выручка.
-    // Либо коэффициент задан вручную в debt_to_revenue.
+    // Долг / выручка — знаменатель: выручка за последний завершённый год
     $debtMetric = $rules['finance_metrics']['debt_to_revenue'];
     $stb = bank_methodology_num($inputs['short_term_borrowings'] ?? null);
     $ap = bank_methodology_num($inputs['accounts_payable'] ?? null);
@@ -483,18 +534,19 @@ function bank_methodology_compute_ratios(array $inputs): array
     if (in_array($industry, ['leasing', 'factoring'], true) && !empty($debtMetric['alt_industry'])) {
         $bands = $debtMetric['alt_industry']['bands'];
     }
-    if ($revenueMissing) {
+    $revenueYearMissing = ($revenueYear !== null && abs((float) $revenueYear) < 0.00001);
+    if ($revenueYearMissing) {
         $debtScore = (float) ($debtMetric['no_revenue_score'] ?? -6);
-        $debtNote = 'Отсутствие выручки';
-    } elseif ($debtValue === null && $revenue !== null && abs($revenue) > 0.00001
+        $debtNote = 'Отсутствие выручки за последний завершённый год';
+    } elseif ($debtValue === null && $revenueYear !== null && abs($revenueYear) > 0.00001
         && $stb !== null && $ltb !== null && $ap !== null && $osl !== null && $ca !== null) {
         $diff = $ap + $osl - $ca;
         if ($diff <= 0) {
-            $debtValue = ($stb + $ltb) / $revenue;
-            $debtNote = 'Авторасчёт: разница ≤ 0';
+            $debtValue = ($stb + $ltb) / $revenueYear;
+            $debtNote = 'Авторасчёт: разница ≤ 0; знаменатель — выручка за год';
         } else {
-            $debtValue = ($stb + $ltb + $diff) / $revenue;
-            $debtNote = 'Авторасчёт: разница > 0';
+            $debtValue = ($stb + $ltb + $diff) / $revenueYear;
+            $debtNote = 'Авторасчёт: разница > 0; знаменатель — выручка за год';
         }
     } elseif ($debtValue !== null) {
         $debtNote = 'Задан вручную';
@@ -562,7 +614,6 @@ function bank_methodology_score_business(array $businessState, array $rules): ar
     foreach ($rules['business_metrics'] as $id => $metric) {
         $row = is_array($businessState[$id] ?? null) ? $businessState[$id] : [];
         $value = $row['value'] ?? null;
-        $override = $row['score_override'] ?? null;
         $autoScore = null;
         $note = '';
 
@@ -578,10 +629,7 @@ function bank_methodology_score_business(array $businessState, array $rules): ar
 
         $source = (string) ($row['source'] ?? 'manual');
         $score = $autoScore;
-        if ($override !== null && $override !== '') {
-            $score = bank_methodology_clamp_score((float) $override, $metric, (int) $metric['max']);
-            $source = 'edited';
-        }
+        // Ручные баллы по метрикам отключены: только градация из шкалы методики.
         if ($score === null) {
             $metricsOut[$id] = [
                 'id' => $id,
@@ -608,7 +656,7 @@ function bank_methodology_score_business(array $businessState, array $rules): ar
             'score' => (float) $score,
             'max' => (int) $metric['max'],
             'weight' => $metric['weight'],
-            'source' => $source,
+            'source' => $source === 'edited' ? 'manual' : $source,
             'note' => $note,
             'options' => $metric['options'],
             'hint' => $metric['hint'] ?? '',
@@ -641,6 +689,46 @@ function bank_methodology_map_rating(float $total, array $rules): array
         }
     }
     return ['rating' => 'D', 'category' => 'Убыточный', 'position' => 'bad'];
+}
+
+/**
+ * @param array{rating:?string,category:?string,position:string} $ratingInfo
+ * @param array<string,mixed> $rules
+ * @return array{rating:string,category:string,position:string}
+ */
+function bank_methodology_cap_rating_to_average(array $ratingInfo, array $rules): array
+{
+    if (($ratingInfo['position'] ?? '') !== 'good') {
+        return [
+            'rating' => (string) ($ratingInfo['rating'] ?? 'B-'),
+            'category' => (string) ($ratingInfo['category'] ?? 'Спекулятивный'),
+            'position' => (string) ($ratingInfo['position'] ?? 'average'),
+        ];
+    }
+    $mapped = bank_methodology_rating_by_letter('B-', $rules);
+    if ($mapped !== null) {
+        return $mapped;
+    }
+    return ['rating' => 'B-', 'category' => 'Спекулятивный', 'position' => 'average'];
+}
+
+/**
+ * @param array<string,mixed> $rules
+ * @return array{rating:string,category:string,position:string}|null
+ */
+function bank_methodology_rating_by_letter(string $letter, array $rules): ?array
+{
+    $letter = trim($letter);
+    foreach ($rules['rating_scale'] as $row) {
+        if ((string) $row['rating'] === $letter) {
+            return [
+                'rating' => (string) $row['rating'],
+                'category' => (string) $row['category'],
+                'position' => (string) $row['position'],
+            ];
+        }
+    }
+    return null;
 }
 
 function bank_methodology_num(mixed $v): ?float
