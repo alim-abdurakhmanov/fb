@@ -56,6 +56,9 @@
         let stopFilter = 'all';
         let stopGroupCollapsed = {};
         let stopMoreOpen = {};
+        let autosaveTimer = null;
+        let autosaving = false;
+        let editGeneration = 0;
 
         async function api(action, payload) {
             if (action === 'get') {
@@ -129,10 +132,12 @@
             // judgment
             const comment = root.querySelector('[data-bm-judgment="comment"]');
             const reason = root.querySelector('[data-bm-judgment="upgrade_downgrade_reason"]');
+            const conclusion = root.querySelector('[data-bm-judgment="conclusion"]');
             const force = root.querySelector('[data-bm-judgment="force_not_good"]');
             const est = root.querySelector('[data-bm-judgment="established_rating"]');
             next.judgment.comment = comment ? comment.value : '';
             next.judgment.upgrade_downgrade_reason = reason ? reason.value : '';
+            next.judgment.conclusion = conclusion ? conclusion.value : '';
             next.judgment.force_not_good = !!(force && force.checked);
             next.judgment.established_rating = est ? est.value : '';
 
@@ -157,6 +162,53 @@
             updateSectionMeta();
             updateStopToolbar();
             updateJudgmentCalc();
+        }
+
+        function draftStatusLabel() {
+            if (isLocked()) {
+                return dirty ? 'зафиксировано · изменённый просмотр' : 'зафиксировано';
+            }
+            if (autosaving) return 'черновик · сохранение…';
+            if (dirty) return 'черновик · не сохранено';
+            return 'черновик';
+        }
+
+        async function autosaveDraft() {
+            if (isLocked() || autosaving || !dirty || !loaded) return;
+            const s = collectStateFromDom();
+            if (!s) return;
+            const gen = editGeneration;
+            autosaving = true;
+            renderSummary();
+            try {
+                const data = await api('save_draft', { state: s });
+                if (!data.success) throw new Error(data.error || 'Ошибка автосохранения');
+                if (gen !== editGeneration) {
+                    // Пока сохраняли, пользователь снова правил — не сбрасываем dirty.
+                    return;
+                }
+                assessment = data.assessment;
+                evaluated = data.evaluated;
+                state = data.evaluated.state;
+                dirty = false;
+                history = await reloadHistory();
+                renderSummary();
+                renderBanners();
+                renderMetricScores();
+                updateSectionMeta();
+                updateJudgmentCalc();
+            } catch (err) {
+                console.warn('autosave failed', err);
+            } finally {
+                autosaving = false;
+                renderSummary();
+            }
+        }
+
+        function scheduleAutosave() {
+            if (isLocked()) return;
+            clearTimeout(autosaveTimer);
+            autosaveTimer = setTimeout(function () { autosaveDraft(); }, 1600);
         }
 
         function isLocked() {
@@ -240,6 +292,12 @@
             const isQ1 = sel && sel.value === 'q1';
             block.classList.toggle('is-visible', !!isQ1);
             block.hidden = !isQ1;
+            const flag = root.querySelector('[data-bm-fin-flag="q1_seasonal_loss_explained"]');
+            const commentWrap = root.querySelector('[data-bm-q1-comment]');
+            if (commentWrap) {
+                const showComment = !!isQ1 && !!(flag && flag.checked);
+                commentWrap.hidden = !showComment;
+            }
         }
 
         function renderSummary() {
@@ -251,9 +309,7 @@
                 : (r.position === 'good' ? 'bm-pos-good'
                 : (r.position === 'bad' ? 'bm-pos-bad' : 'bm-pos-average'));
             const status = assessment ? assessment.status : 'draft';
-            const statusLabel = status === 'final'
-                ? (dirty ? 'зафиксировано · изменённый просмотр' : 'зафиксировано')
-                : (dirty ? 'черновик · не сохранено' : 'черновик');
+            const statusLabel = draftStatusLabel();
             const ratingText = incomplete ? '—' : (r.rating || '—');
             const posText = r.position_label || '';
             const calcRating = r.calculated_rating || '';
@@ -289,6 +345,18 @@
                     <div class="value">${esc(ratingText)}</div>
                     <div class="meta">${ratingSub}</div>
                 </div>`;
+            updateStickyOffsets();
+        }
+
+        function updateStickyOffsets() {
+            const wrap = root.querySelector('.bm-wrap');
+            const summary = root.querySelector('[data-bm-summary]');
+            if (!wrap) return;
+            let offsetPx = 80;
+            if (summary && summary.offsetHeight) {
+                offsetPx = summary.offsetHeight + 8;
+            }
+            wrap.style.setProperty('--bm-summary-offset', offsetPx + 'px');
         }
 
         function renderBanners() {
@@ -451,8 +519,7 @@
                                     <option value="annual" ${!inputs.reporting_period || inputs.reporting_period === 'annual' ? 'selected' : ''}>Год / иной период</option>
                                     <option value="q1" ${inputs.reporting_period === 'q1' ? 'selected' : ''}>1 квартал</option>
                                     <option value="q2" ${inputs.reporting_period === 'q2' ? 'selected' : ''}>2 квартал</option>
-                                    <option value="q3" ${inputs.reporting_period === 'q3' ? 'selected' : ''}>9 месяцев / 3 кв.</option>
-                                    <option value="9m" ${inputs.reporting_period === '9m' ? 'selected' : ''}>9 месяцев</option>
+                                    <option value="9m" ${inputs.reporting_period === '9m' || inputs.reporting_period === 'q3' ? 'selected' : ''}>9 месяцев (3 кв.)</option>
                                 </select>
                             </div>
                             <div class="bm-field">
@@ -466,7 +533,7 @@
                         </div>
                         <div class="bm-q1-block${isQ1 ? ' is-visible' : ''}" data-bm-q1-block ${isQ1 ? '' : 'hidden'}>
                             <label class="bm-inline-check"><input type="checkbox" data-bm-fin-flag="q1_seasonal_loss_explained" ${inputs.q1_seasonal_loss_explained ? 'checked' : ''}> Убыток 1 кв. — сезонность</label>
-                            <div class="bm-field bm-field-grow">
+                            <div class="bm-field bm-field-grow" data-bm-q1-comment ${inputs.q1_seasonal_loss_explained ? '' : 'hidden'}>
                                 <label>Комментарий к сезонности</label>
                                 <input data-bm-fin="q1_seasonal_comment" value="${esc(inputs.q1_seasonal_comment || '')}" placeholder="Обоснование сезонности">
                             </div>
@@ -597,8 +664,7 @@
 
             const actionsHtml = locked
                 ? `<button type="button" class="btn btn-primary btn-sm" data-bm-action="newdraft" title="Создать редактируемую версию на базе зафиксированной"><i class="bi bi-plus-lg me-1"></i>Новый черновик</button>`
-                : `<button type="button" class="btn btn-outline-secondary btn-sm" data-bm-action="recalc"><i class="bi bi-arrow-repeat me-1"></i>Пересчитать</button>
-                        <button type="button" class="btn btn-outline-primary btn-sm" data-bm-action="save"><i class="bi bi-save me-1"></i>Сохранить черновик</button>
+                : `<button type="button" class="btn btn-outline-primary btn-sm" data-bm-action="save"><i class="bi bi-save me-1"></i>Сохранить черновик</button>
                         <button type="button" class="btn btn-primary btn-sm" data-bm-action="finalize"><i class="bi bi-check2-circle me-1"></i>Зафиксировать</button>`;
 
             const rMeta = (evaluated && evaluated.result) || {};
@@ -624,7 +690,11 @@
                 <div data-bm-banners></div>
 
                 <div class="bm-section${sectionCollapsed.stops ? ' is-collapsed' : ''}" data-bm-section="stops">
-                    <div class="bm-section-head"><h5>1. Стоп-факторы</h5><span class="meta">${esc(sectionMeta.stops)}</span></div>
+                    <div class="bm-section-head" aria-expanded="${sectionCollapsed.stops ? 'false' : 'true'}">
+                        <span class="bm-section-chevron" aria-hidden="true"></span>
+                        <h5>1. Стоп-факторы</h5>
+                        <span class="meta">${esc(sectionMeta.stops)}</span>
+                    </div>
                     <div class="bm-section-body">
                         <div class="bm-stop-toolbar">
                             <span class="bm-stop-count" data-bm-stop-count>Отмечено ${stopCountsNow.on} из ${stopCountsNow.total}</span>
@@ -638,7 +708,11 @@
                 </div>
 
                 <div class="bm-section${sectionCollapsed.finance ? ' is-collapsed' : ''}" data-bm-section="finance">
-                    <div class="bm-section-head"><h5>2. Финансы</h5><span class="meta">${esc(sectionMeta.finance)}</span></div>
+                    <div class="bm-section-head" aria-expanded="${sectionCollapsed.finance ? 'false' : 'true'}">
+                        <span class="bm-section-chevron" aria-hidden="true"></span>
+                        <h5>2. Финансы</h5>
+                        <span class="meta">${esc(sectionMeta.finance)}</span>
+                    </div>
                     <div class="bm-section-body">
                         ${finInputsHtml}
                         <div class="bm-finance-metrics">${finMetricsHtml}</div>
@@ -646,12 +720,20 @@
                 </div>
 
                 <div class="bm-section${sectionCollapsed.business ? ' is-collapsed' : ''}" data-bm-section="business">
-                    <div class="bm-section-head"><h5>3. Бизнес-риск</h5><span class="meta">${esc(sectionMeta.business)}</span></div>
+                    <div class="bm-section-head" aria-expanded="${sectionCollapsed.business ? 'false' : 'true'}">
+                        <span class="bm-section-chevron" aria-hidden="true"></span>
+                        <h5>3. Бизнес-риск</h5>
+                        <span class="meta">${esc(sectionMeta.business)}</span>
+                    </div>
                     <div class="bm-section-body"><div class="bm-business-list">${bizHtml}</div></div>
                 </div>
 
                 <div class="bm-section${sectionCollapsed.judgment ? ' is-collapsed' : ''}" data-bm-section="judgment">
-                    <div class="bm-section-head"><h5>4. Профсуждение</h5><span class="meta">${esc(sectionMeta.judgment)}</span></div>
+                    <div class="bm-section-head" aria-expanded="${sectionCollapsed.judgment ? 'false' : 'true'}">
+                        <span class="bm-section-chevron" aria-hidden="true"></span>
+                        <h5>4. Профсуждение</h5>
+                        <span class="meta">${esc(sectionMeta.judgment)}</span>
+                    </div>
                     <div class="bm-section-body bm-judgment">
                         <div class="mb-3">
                             <label class="form-label small text-muted fw-bold">Комментарий</label>
@@ -674,6 +756,10 @@
                             <label class="form-label small text-muted fw-bold">Основания повышения / понижения рейтинга</label>
                             <textarea data-bm-judgment="upgrade_downgrade_reason">${esc(j.upgrade_downgrade_reason || '')}</textarea>
                         </div>
+                        <div class="mb-3">
+                            <label class="form-label small text-muted fw-bold">Заключение</label>
+                            <textarea data-bm-judgment="conclusion" placeholder="Итоговое заключение по оценке финансового положения">${esc(j.conclusion || '')}</textarea>
+                        </div>
                         <div class="bm-checks">
                             <label><input type="checkbox" data-bm-judgment="force_not_good" ${j.force_not_good ? 'checked' : ''}> Обстоятельства 590-П, исключающие «Хорошее»</label>
                         </div>
@@ -695,6 +781,7 @@
             renderMetricScores();
             updateSectionMeta();
             updateJudgmentCalc();
+            updateStickyOffsets();
         }
 
         function applyLockState() {
@@ -717,8 +804,10 @@
                     if (!section) return;
                     const key = section.getAttribute('data-bm-section');
                     section.classList.toggle('is-collapsed');
+                    const collapsed = section.classList.contains('is-collapsed');
+                    head.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
                     if (key && Object.prototype.hasOwnProperty.call(sectionCollapsed, key)) {
-                        sectionCollapsed[key] = section.classList.contains('is-collapsed');
+                        sectionCollapsed[key] = collapsed;
                     }
                 });
             });
@@ -727,8 +816,11 @@
             function scheduleRecalc() {
                 if (isLocked()) return;
                 dirty = true;
+                editGeneration += 1;
+                renderSummary();
                 clearTimeout(timer);
                 timer = setTimeout(function () { recalculateSilent(); }, 280);
+                scheduleAutosave();
             }
 
             root.querySelectorAll('input, select, textarea').forEach(function (el) {
@@ -797,17 +889,12 @@
 
             const act = async function (name) {
                 try {
-                    if (name === 'recalc') {
-                        if (isLocked()) return;
-                        await recalculateSilent();
-                        notify('Пересчитано', 'success');
-                        return;
-                    }
                     if (name === 'save') {
                         if (isLocked()) {
                             notify('Оценка зафиксирована. Создайте новый черновик для правок.', 'error');
                             return;
                         }
+                        clearTimeout(autosaveTimer);
                         const s = collectStateFromDom();
                         const data = await api('save_draft', { state: s });
                         if (!data.success) throw new Error(data.error || 'Ошибка сохранения');
@@ -829,6 +916,7 @@
                             notify('Эта версия уже зафиксирована.', 'error');
                             return;
                         }
+                        clearTimeout(autosaveTimer);
                         const s = collectStateFromDom();
                         // локальная проверка incomplete до запроса
                         const preview = await api('recalculate', { state: s });
@@ -929,12 +1017,24 @@
         const params = new URLSearchParams(window.location.search);
         if (params.get('tab') === 'bankAppMethodology' || params.get('tab') === 'methodology') ensureLoad();
 
+        window.addEventListener('beforeunload', function (e) {
+            if (!dirty || isLocked()) return;
+            e.preventDefault();
+            e.returnValue = '';
+        });
+
+        window.addEventListener('resize', function () {
+            updateStickyOffsets();
+        });
+
         const ctl = {
             setApplicationId: function (id) {
                 const next = Number(id || 0);
                 if (next <= 0 || next === applicationId) return;
+                clearTimeout(autosaveTimer);
                 applicationId = next;
                 dirty = false;
+                editGeneration += 1;
                 rules = null;
                 state = null;
                 evaluated = null;
