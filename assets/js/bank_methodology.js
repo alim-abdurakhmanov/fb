@@ -292,6 +292,12 @@
             const isQ1 = sel && sel.value === 'q1';
             block.classList.toggle('is-visible', !!isQ1);
             block.hidden = !isQ1;
+            const flag = root.querySelector('[data-bm-fin-flag="q1_seasonal_loss_explained"]');
+            const commentWrap = root.querySelector('[data-bm-q1-comment]');
+            if (commentWrap) {
+                const showComment = !!isQ1 && !!(flag && flag.checked);
+                commentWrap.hidden = !showComment;
+            }
         }
 
         function renderSummary() {
@@ -527,7 +533,7 @@
                         </div>
                         <div class="bm-q1-block${isQ1 ? ' is-visible' : ''}" data-bm-q1-block ${isQ1 ? '' : 'hidden'}>
                             <label class="bm-inline-check"><input type="checkbox" data-bm-fin-flag="q1_seasonal_loss_explained" ${inputs.q1_seasonal_loss_explained ? 'checked' : ''}> Убыток 1 кв. — сезонность</label>
-                            <div class="bm-field bm-field-grow">
+                            <div class="bm-field bm-field-grow" data-bm-q1-comment ${inputs.q1_seasonal_loss_explained ? '' : 'hidden'}>
                                 <label>Комментарий к сезонности</label>
                                 <input data-bm-fin="q1_seasonal_comment" value="${esc(inputs.q1_seasonal_comment || '')}" placeholder="Обоснование сезонности">
                             </div>
@@ -775,6 +781,7 @@
             renderMetricScores();
             updateSectionMeta();
             updateJudgmentCalc();
+            updateStickyOffsets();
         }
 
         function applyLockState() {
@@ -1014,6 +1021,10 @@
             if (!dirty || isLocked()) return;
             e.preventDefault();
             e.returnValue = '';
+        });
+
+        window.addEventListener('resize', function () {
+            updateStickyOffsets();
         });
 
         const ctl = {
