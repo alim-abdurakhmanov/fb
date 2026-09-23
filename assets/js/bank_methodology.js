@@ -801,9 +801,9 @@
             const hasSavedDraft = !!(assessment && assessment.status === 'draft' && assessment.id);
             const actionsHtml = locked
                 ? `<button type="button" class="btn btn-primary btn-sm" data-bm-action="newdraft" title="Создать редактируемую версию на базе зафиксированной"><i class="bi bi-plus-lg me-1"></i>Новый черновик</button>`
-                : `<button type="button" class="btn btn-outline-secondary btn-sm" data-bm-action="checko" title="Стоп-факторы 1.1, 1.3, 1.5, 3, 4, C1 и пустые финансы из Checko"><i class="bi bi-cloud-download me-1"></i>Из Checko</button>
+                : `<button type="button" class="btn btn-outline-secondary btn-sm" data-bm-action="checko" title="Автозаполнение стоп-факторов и финансов"><i class="bi bi-search me-1"></i>Авто</button>
                         <button type="button" class="btn btn-outline-primary btn-sm" data-bm-action="save"><i class="bi bi-save me-1"></i>Сохранить черновик</button>
-                        ${hasSavedDraft ? `<button type="button" class="btn btn-outline-danger btn-sm" data-bm-action="reset" title="Очистить черновик и заново подтянуть Checko"><i class="bi bi-arrow-counterclockwise me-1"></i>Сбросить черновик</button>` : ''}
+                        ${hasSavedDraft ? `<button type="button" class="btn btn-outline-danger btn-sm" data-bm-action="reset" title="Очистить черновик и заново автозаполнить"><i class="bi bi-arrow-counterclockwise me-1"></i>Сбросить черновик</button>` : ''}
                         <button type="button" class="btn btn-primary btn-sm" data-bm-action="finalize"><i class="bi bi-check2-circle me-1"></i>Зафиксировать</button>`;
 
             const rMeta = (evaluated && evaluated.result) || {};
@@ -1117,7 +1117,7 @@
                         dirty = false;
                         history = await reloadHistory();
                         renderAll();
-                        notify(data.message || 'Данные Checko подтянуты', 'success');
+                        notify(data.message || 'Данные автоматически загружены', 'success');
                         return;
                     }
                     if (name === 'reset') {
@@ -1129,7 +1129,7 @@
                             notify('Нет сохранённого черновика для сброса.', 'info');
                             return;
                         }
-                        if (!window.confirm('Сбросить сохранённый черновик и заново подтянуть данные из Checko?')) {
+                        if (!window.confirm('Сбросить сохранённый черновик и заново загрузить данные автоматически?')) {
                             return;
                         }
                         clearTimeout(autosaveTimer);
@@ -1141,7 +1141,7 @@
                         dirty = false;
                         history = await reloadHistory();
                         renderAll();
-                        notify(data.message || 'Черновик сброшен и обновлён из Checko', 'success');
+                        notify(data.message || 'Данные автоматически загружены', 'success');
                         return;
                     }
                     if (name === 'newdraft') {

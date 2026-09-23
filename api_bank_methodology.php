@@ -225,7 +225,8 @@ try {
         $inn = preg_replace('/\D+/', '', (string) ($appRow['inn'] ?? '')) ?? '';
         $checkoMeta = null;
         $checkoApplied = null;
-        $message = 'Черновик сброшен';
+        $message = 'Данные автоматически загружены';
+        $autoOk = false;
 
         if (strlen($inn) >= 10) {
             $proposal = bank_methodology_checko_propose($inn);
@@ -234,21 +235,14 @@ try {
                 $empty = $merged['state'];
                 $checkoApplied = $merged['applied'];
                 $checkoMeta = $proposal['meta'] ?? [];
-                $on = $merged['applied']['stops_on'] ?? [];
-                $fin = $merged['applied']['finance'] ?? [];
-                $parts = ['черновик сброшен'];
-                if ($on !== []) {
-                    $parts[] = 'стопы: ' . implode(', ', $on);
-                }
-                if ($fin !== []) {
-                    $parts[] = 'финансы: ' . count($fin) . ' полей';
-                }
-                $message = 'Сброс + Checko: ' . implode('; ', $parts);
+                $autoOk = true;
+                $message = 'Данные автоматически загружены';
             } else {
-                $message = 'Черновик сброшен. Checko: ' . (string) ($proposal['error'] ?? 'не удалось подтянуть');
+                $message = 'Черновик сброшен. Автозагрузка не удалась: '
+                    . (string) ($proposal['error'] ?? 'ошибка источника');
             }
         } else {
-            $message = 'Черновик сброшен. Checko пропущен: нет ИНН';
+            $message = 'Черновик сброшен. Автозагрузка пропущена: нет ИНН';
         }
 
         $saved = bank_methodology_save_draft($pdo, $applicationId, $userId, $empty);
@@ -260,6 +254,7 @@ try {
             'checko' => [
                 'meta' => $checkoMeta,
                 'applied' => $checkoApplied,
+                'ok' => $autoOk,
             ],
             'message' => $message,
         ]);
@@ -307,19 +302,10 @@ try {
         $on = $merged['applied']['stops_on'] ?? [];
         $fin = $merged['applied']['finance'] ?? [];
         $biz = $merged['applied']['business'] ?? [];
-        $parts = [];
-        if ($on !== []) {
-            $parts[] = 'стопы: ' . implode(', ', $on);
-        }
-        if ($fin !== []) {
-            $parts[] = 'финансы: ' . count($fin) . ' полей';
-        }
-        if ($biz !== []) {
-            $parts[] = 'бизнес: ' . implode(', ', $biz);
-        }
-        $message = $parts !== []
-            ? ('Checko: ' . implode('; ', $parts))
-            : 'Checko: уверенных изменений нет (поля уже заполнены или стопы без сигналов)';
+        $hasChanges = $on !== [] || $fin !== [] || $biz !== [];
+        $message = $hasChanges
+            ? 'Данные автоматически загружены'
+            : 'Данные автоматически загружены. Новых изменений нет';
 
         bank_methodology_json([
             'success' => true,
