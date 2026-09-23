@@ -75,6 +75,9 @@
             if (payload && payload.state) {
                 body.append('state', JSON.stringify(payload.state));
             }
+            if (payload && payload.force_finance) {
+                body.append('force_finance', '1');
+            }
             const r = await fetch('api_bank_methodology.php', {
                 method: 'POST',
                 body: body,
@@ -91,10 +94,23 @@
             next.stop_factors = (rules.stop_factors || []).map(function (sf) {
                 const cb = root.querySelector('[data-bm-stop="' + sf.code + '"]');
                 const ta = root.querySelector('[data-bm-stop-comment="' + sf.code + '"]');
+                const item = cb ? cb.closest('.bm-stop-item') : null;
+                const prev = ((state && state.stop_factors) || []).find(function (x) {
+                    return x.code === sf.code;
+                }) || {};
+                const checked = !!(cb && cb.checked);
+                let source = 'manual';
+                if (item && item.getAttribute('data-bm-stop-source') === 'checko') {
+                    source = checked ? 'checko' : 'manual';
+                } else if (!checked && (prev.source === 'checko') && !prev.triggered) {
+                    source = 'checko';
+                } else if (checked && prev.source === 'checko') {
+                    source = 'checko';
+                }
                 return {
                     code: sf.code,
-                    triggered: !!(cb && cb.checked),
-                    source: 'manual',
+                    triggered: checked,
+                    source: source,
                     comment: ta ? ta.value.trim() : '',
                 };
             });
@@ -127,8 +143,14 @@
                 const el = root.querySelector('[data-bm-biz="' + id + '"]');
                 if (!el) return;
                 if (!next.business[id]) next.business[id] = { value: null, source: 'manual', score_override: null };
-                next.business[id].value = el.value === '' ? null : el.value;
-                next.business[id].source = 'manual';
+                const prev = (state.business && state.business[id]) || {};
+                const nextVal = el.value === '' ? null : el.value;
+                next.business[id].value = nextVal;
+                if (prev.source === 'checko' && String(prev.value || '') === String(nextVal || '')) {
+                    next.business[id].source = 'checko';
+                } else {
+                    next.business[id].source = 'manual';
+                }
                 next.business[id].score_override = null;
             });
 
@@ -585,13 +607,14 @@
                     const cond = !sf.mandatory;
                     const short = sf.short_label || sf.label;
                     const moreOpen = !!stopMoreOpen[sf.code];
+                    const fromAuto = on && row.source === 'checko';
                     const id = 'bm-stop-' + String(sf.code).replace(/[^a-zA-Z0-9_-]/g, '_');
                     return `
-                    <div class="bm-stop-item ${on ? 'is-on' : ''} ${cond ? 'is-conditional' : ''} ${moreOpen ? 'is-more-open' : ''}" data-bm-stop-row="${esc(sf.code)}">
+                    <div class="bm-stop-item ${on ? 'is-on' : ''} ${cond ? 'is-conditional' : ''} ${moreOpen ? 'is-more-open' : ''}${fromAuto ? ' is-auto' : ''}" data-bm-stop-row="${esc(sf.code)}" data-bm-stop-source="${esc(row.source || 'manual')}">
                         <div class="bm-stop-main">
                             <label class="bm-stop-head" for="${esc(id)}">
                                 <input id="${esc(id)}" type="checkbox" data-bm-stop="${esc(sf.code)}" ${on ? 'checked' : ''}>
-                                <span class="title">${esc(short)}</span>
+                                <span class="title">${esc(short)}${fromAuto ? '<span class="bm-source-pill" title="Проставлено автоматически">Авто</span>' : ''}</span>
                             </label>
                             <button type="button" class="bm-stop-info${moreOpen ? ' is-open' : ''}" data-bm-stop-more="${esc(sf.code)}" title="Полная формулировка" aria-expanded="${moreOpen ? 'true' : 'false'}">i</button>
                         </div>
@@ -775,9 +798,12 @@
                 return `<li>v${esc(h.version)} · ${esc(h.status)} · ${esc(h.rating || '—')} · ${esc(h.total_score != null ? h.total_score : '—')}</li>`;
             }).join('');
 
+            const hasSavedDraft = !!(assessment && assessment.status === 'draft' && assessment.id);
             const actionsHtml = locked
                 ? `<button type="button" class="btn btn-primary btn-sm" data-bm-action="newdraft" title="Создать редактируемую версию на базе зафиксированной"><i class="bi bi-plus-lg me-1"></i>Новый черновик</button>`
-                : `<button type="button" class="btn btn-outline-primary btn-sm" data-bm-action="save"><i class="bi bi-save me-1"></i>Сохранить черновик</button>
+                : `<button type="button" class="btn btn-outline-secondary btn-sm" data-bm-action="checko" title="Стоп-факторы 1.1, 1.3, 1.5, 3, 4, C1 и пустые финансы из Checko"><i class="bi bi-cloud-download me-1"></i>Из Checko</button>
+                        <button type="button" class="btn btn-outline-primary btn-sm" data-bm-action="save"><i class="bi bi-save me-1"></i>Сохранить черновик</button>
+                        ${hasSavedDraft ? `<button type="button" class="btn btn-outline-danger btn-sm" data-bm-action="reset" title="Очистить черновик и заново подтянуть Checko"><i class="bi bi-arrow-counterclockwise me-1"></i>Сбросить черновик</button>` : ''}
                         <button type="button" class="btn btn-primary btn-sm" data-bm-action="finalize"><i class="bi bi-check2-circle me-1"></i>Зафиксировать</button>`;
 
             const rMeta = (evaluated && evaluated.result) || {};
@@ -951,6 +977,10 @@
                     const item = el.closest('.bm-stop-item');
                     if (item) {
                         item.classList.toggle('is-on', !!el.checked);
+                        item.setAttribute('data-bm-stop-source', 'manual');
+                        item.classList.remove('is-auto');
+                        const pill = item.querySelector('.bm-source-pill');
+                        if (pill) pill.remove();
                         const ta = item.querySelector('textarea[data-bm-stop-comment]');
                         if (ta) ta.hidden = !el.checked;
                     }
@@ -1070,6 +1100,48 @@
                         history = await reloadHistory();
                         renderAll();
                         notify(data.message || 'Зафиксировано', 'success');
+                        return;
+                    }
+                    if (name === 'checko') {
+                        if (isLocked()) {
+                            notify('Оценка зафиксирована. Создайте новый черновик для правок.', 'error');
+                            return;
+                        }
+                        clearTimeout(autosaveTimer);
+                        const s = collectStateFromDom();
+                        const data = await api('pull_checko', { state: s });
+                        if (!data.success) throw new Error(data.error || 'Ошибка Checko');
+                        assessment = data.assessment;
+                        evaluated = data.evaluated;
+                        state = data.evaluated.state;
+                        dirty = false;
+                        history = await reloadHistory();
+                        renderAll();
+                        notify(data.message || 'Данные Checko подтянуты', 'success');
+                        return;
+                    }
+                    if (name === 'reset') {
+                        if (isLocked()) {
+                            notify('Зафиксированную оценку нельзя сбросить. Создайте новый черновик.', 'error');
+                            return;
+                        }
+                        if (!(assessment && assessment.status === 'draft' && assessment.id)) {
+                            notify('Нет сохранённого черновика для сброса.', 'info');
+                            return;
+                        }
+                        if (!window.confirm('Сбросить сохранённый черновик и заново подтянуть данные из Checko?')) {
+                            return;
+                        }
+                        clearTimeout(autosaveTimer);
+                        const data = await api('reset_draft', {});
+                        if (!data.success) throw new Error(data.error || 'Ошибка сброса');
+                        assessment = data.assessment;
+                        evaluated = data.evaluated;
+                        state = data.evaluated.state;
+                        dirty = false;
+                        history = await reloadHistory();
+                        renderAll();
+                        notify(data.message || 'Черновик сброшен и обновлён из Checko', 'success');
                         return;
                     }
                     if (name === 'newdraft') {
