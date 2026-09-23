@@ -175,6 +175,9 @@
             if (!incomplete && calcRating && String(calcRating) !== String(ratingText)) {
                 ratingSub += ' · расчётный ' + esc(calcRating);
             }
+            const versionLabel = assessment && assessment.version != null && assessment.version !== ''
+                ? ('версия ' + assessment.version + ' · ')
+                : '';
             box.innerHTML = `
                 <div class="bm-kpi bm-kpi-score">
                     <div class="label">Финансы</div>
@@ -187,7 +190,7 @@
                 <div class="bm-kpi bm-kpi-total">
                     <div class="label">Итого</div>
                     <div class="value">${esc(fmtScore(r.total_score))}<span class="denom">/100</span></div>
-                    <div class="meta">v${assessment ? assessment.version : '—'} · <span class="bm-status-chip ${esc(status)}">${esc(statusLabel)}</span></div>
+                    <div class="meta">${versionLabel}<span class="bm-status-chip ${esc(status)}">${esc(statusLabel)}</span></div>
                 </div>
                 <div class="bm-kpi bm-kpi-rating ${posClass}">
                     <div class="label">Рейтинг</div>
