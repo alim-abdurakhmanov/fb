@@ -52,6 +52,10 @@
         let history = [];
         let dirty = false;
         let loaded = false;
+        let sectionCollapsed = { stops: false, finance: true, business: true, judgment: true };
+        let stopFilter = 'all';
+        let stopGroupCollapsed = {};
+        let stopMoreOpen = {};
 
         async function api(action, payload) {
             if (action === 'get') {
@@ -150,10 +154,92 @@
             renderSummary();
             renderMetricScores();
             renderBanners();
+            updateSectionMeta();
+            updateStopToolbar();
+            updateJudgmentCalc();
         }
 
         function isLocked() {
             return !!(assessment && assessment.status === 'final');
+        }
+
+        function stopCounts() {
+            const factors = rules && rules.stop_factors ? rules.stop_factors : [];
+            const rows = (state && state.stop_factors) || [];
+            let on = 0;
+            factors.forEach(function (sf) {
+                const row = rows.find(function (x) { return x.code === sf.code; }) || {};
+                const cb = root.querySelector('[data-bm-stop="' + sf.code + '"]');
+                if (cb ? cb.checked : !!row.triggered) on += 1;
+            });
+            return { on: on, total: factors.length };
+        }
+
+        function ratingCategory(letter) {
+            if (!letter || !rules) return '';
+            const row = (rules.rating_scale || []).find(function (x) {
+                return String(x.rating) === String(letter);
+            });
+            return row ? row.category : '';
+        }
+
+        function updateSectionMeta() {
+            const r = (evaluated && evaluated.result) || {};
+            const stops = stopCounts();
+            const plain = {
+                stops: 'отмечено ' + stops.on,
+                finance: fmtScore(r.finance_score) + '/50',
+                business: fmtScore(r.business_score) + '/50',
+                judgment: r.incomplete ? '—' : (r.rating || '—'),
+            };
+            Object.keys(plain).forEach(function (key) {
+                const el = root.querySelector('[data-bm-section="' + key + '"] .bm-section-head .meta');
+                if (el) el.textContent = plain[key];
+            });
+        }
+
+        function updateStopToolbar() {
+            const el = root.querySelector('[data-bm-stop-count]');
+            if (!el) return;
+            const c = stopCounts();
+            el.textContent = 'Отмечено ' + c.on + ' из ' + c.total;
+        }
+
+        function updateJudgmentCalc() {
+            const box = root.querySelector('[data-bm-judgment-calc]');
+            if (!box || !evaluated) return;
+            const r = evaluated.result || {};
+            if (r.incomplete) {
+                box.textContent = 'Расчётный: —';
+                return;
+            }
+            const letter = r.calculated_rating || r.rating || '—';
+            const cat = ratingCategory(letter);
+            box.textContent = 'Расчётный: ' + letter + (cat ? ' · ' + cat : '');
+        }
+
+        function applyStopFilter() {
+            const onlyOn = stopFilter === 'triggered';
+            root.querySelectorAll('[data-bm-stop-row]').forEach(function (row) {
+                const on = row.classList.contains('is-on');
+                row.hidden = onlyOn && !on;
+            });
+            root.querySelectorAll('[data-bm-stop-group]').forEach(function (group) {
+                const visible = group.querySelectorAll('[data-bm-stop-row]:not([hidden])');
+                group.hidden = onlyOn && visible.length === 0;
+            });
+            root.querySelectorAll('[data-bm-stop-filter]').forEach(function (btn) {
+                btn.classList.toggle('is-active', btn.getAttribute('data-bm-stop-filter') === stopFilter);
+            });
+        }
+
+        function applyQ1Visibility() {
+            const sel = root.querySelector('[data-bm-fin="reporting_period"]');
+            const block = root.querySelector('[data-bm-q1-block]');
+            if (!block) return;
+            const isQ1 = sel && sel.value === 'q1';
+            block.classList.toggle('is-visible', !!isQ1);
+            block.hidden = !isQ1;
         }
 
         function renderSummary() {
@@ -208,7 +294,7 @@
                 html += `<div class="bm-banner warn"><strong>Оценка зафиксирована.</strong> Для правок нажмите «Новый черновик» — будет создана новая версия на базе текущей.</div>`;
             }
             if (r.incomplete) {
-                html += `<div class="bm-banner warn"><strong>Рейтинг ещё не присвоен.</strong> Заполните все показатели финансов и бизнес-риска (или укажите ручной балл).</div>`;
+                html += `<div class="bm-banner warn"><strong>Рейтинг ещё не присвоен.</strong> Заполните все показатели финансов и бизнес-риска.</div>`;
             }
             if (r.hard_stop) {
                 const list = (r.mandatory_stops || []).map(function (s) {
@@ -249,7 +335,7 @@
                     const parts = [];
                     if (m.value != null && m.value !== '') {
                         const unit = m.unit === '%' ? '%' : '';
-                        parts.push('Значение: ' + fmtScore(m.value) + unit);
+                        parts.push(fmtScore(m.value) + unit);
                     }
                     if (m.note) parts.push(m.note);
                     note.textContent = parts.join(' · ');
@@ -266,6 +352,18 @@
             });
         }
 
+        function finField(label, key, opts) {
+            opts = opts || {};
+            const inputs = state.finance.inputs || {};
+            const val = numOrEmpty(inputs[key]);
+            const ph = opts.placeholder != null ? opts.placeholder : 'руб';
+            return `
+                <div class="bm-field">
+                    <label>${esc(label)}</label>
+                    <input data-bm-fin="${esc(key)}" inputmode="decimal" value="${esc(val)}" placeholder="${esc(ph)}">
+                </div>`;
+        }
+
         function renderAll() {
             if (!rules || !state) return;
             const stopGroupLabels = rules.stop_groups || {};
@@ -278,119 +376,202 @@
             const stopGroupOrder = Object.keys(stopGroupLabels).length
                 ? Object.keys(stopGroupLabels)
                 : Object.keys(stopByGroup);
+
+            const stopCountsNow = (function () {
+                let on = 0;
+                (rules.stop_factors || []).forEach(function (sf) {
+                    const row = (state.stop_factors || []).find(function (x) { return x.code === sf.code; }) || {};
+                    if (row.triggered) on += 1;
+                });
+                return { on: on, total: (rules.stop_factors || []).length };
+            })();
+
             const stopHtml = stopGroupOrder.map(function (groupId) {
                 const items = stopByGroup[groupId];
                 if (!items || !items.length) return '';
                 const title = stopGroupLabels[groupId] || groupId;
                 const isMulti = items.length > 1;
+                const groupCollapsed = !!stopGroupCollapsed[groupId];
                 const cards = items.map(function (sf) {
                     const row = (state.stop_factors || []).find(function (x) { return x.code === sf.code; }) || {};
                     const on = !!row.triggered;
                     const cond = !sf.mandatory;
+                    const short = sf.short_label || sf.label;
+                    const moreOpen = !!stopMoreOpen[sf.code];
                     const id = 'bm-stop-' + String(sf.code).replace(/[^a-zA-Z0-9_-]/g, '_');
                     return `
-                    <div class="bm-stop-item ${on ? 'is-on' : ''} ${cond ? 'is-conditional' : ''}">
-                        <label class="bm-stop-head" for="${esc(id)}">
-                            <input id="${esc(id)}" type="checkbox" data-bm-stop="${esc(sf.code)}" ${on ? 'checked' : ''}>
-                            <span class="title">${esc(sf.label)}</span>
-                        </label>
-                        <textarea data-bm-stop-comment="${esc(sf.code)}" rows="2" placeholder="Комментарий">${esc(row.comment || '')}</textarea>
+                    <div class="bm-stop-item ${on ? 'is-on' : ''} ${cond ? 'is-conditional' : ''} ${moreOpen ? 'is-more-open' : ''}" data-bm-stop-row="${esc(sf.code)}">
+                        <div class="bm-stop-main">
+                            <label class="bm-stop-head" for="${esc(id)}">
+                                <input id="${esc(id)}" type="checkbox" data-bm-stop="${esc(sf.code)}" ${on ? 'checked' : ''}>
+                                <span class="title">${esc(short)}</span>
+                            </label>
+                            <button type="button" class="bm-stop-info${moreOpen ? ' is-open' : ''}" data-bm-stop-more="${esc(sf.code)}" title="Полная формулировка" aria-expanded="${moreOpen ? 'true' : 'false'}">i</button>
+                        </div>
+                        <div class="bm-stop-full"${moreOpen ? '' : ' hidden'}>${esc(sf.label)}</div>
+                        <textarea data-bm-stop-comment="${esc(sf.code)}" rows="2" placeholder="Комментарий"${on ? '' : ' hidden'}>${esc(row.comment || '')}</textarea>
                     </div>`;
                 }).join('');
-                const heading = isMulti
-                    ? `<h6 class="bm-stop-group-title">${esc(title)}</h6>`
-                    : '';
+
+                if (isMulti) {
+                    return `
+                    <div class="bm-stop-group${groupCollapsed ? ' is-collapsed' : ''}" data-bm-stop-group="${esc(groupId)}">
+                        <button type="button" class="bm-stop-group-toggle" data-bm-stop-group-toggle="${esc(groupId)}" aria-expanded="${groupCollapsed ? 'false' : 'true'}">
+                            <span class="bm-stop-group-title">${esc(title)}</span>
+                            <span class="bm-stop-group-count">${items.length}</span>
+                            <span class="bm-chevron" aria-hidden="true"></span>
+                        </button>
+                        <div class="bm-stop-list">${cards}</div>
+                    </div>`;
+                }
                 return `
-                <div class="bm-stop-group${isMulti ? '' : ' bm-stop-group-single'}">
-                    ${heading}
-                    <div class="bm-stop-grid">${cards}</div>
+                <div class="bm-stop-group bm-stop-group-single" data-bm-stop-group="${esc(groupId)}">
+                    <div class="bm-stop-list">${cards}</div>
                 </div>`;
             }).join('');
 
             const inputs = state.finance.inputs || {};
             const locked = isLocked();
+            const isQ1 = inputs.reporting_period === 'q1';
+
             const finInputsHtml = `
-                <div class="bm-inputs">
-                    <div><label>Выручка за текущий период, руб</label><input data-bm-fin="revenue" inputmode="decimal" value="${esc(numOrEmpty(inputs.revenue))}"></div>
-                    <div><label>Выручка за последний завершённый год, руб</label><input data-bm-fin="revenue_last_year" inputmode="decimal" value="${esc(numOrEmpty(inputs.revenue_last_year))}"></div>
-                    <div><label>Чистая прибыль (текущий период), руб</label><input data-bm-fin="net_profit" inputmode="decimal" value="${esc(numOrEmpty(inputs.net_profit))}"></div>
-                    <div><label>Чистая прибыль за последний завершённый год, руб</label><input data-bm-fin="prior_year_net_profit" inputmode="decimal" value="${esc(numOrEmpty(inputs.prior_year_net_profit))}"></div>
-                    <div><label>Доходы от участия в других организациях, руб</label><input data-bm-fin="income_from_participation" inputmode="decimal" value="${esc(numOrEmpty(inputs.income_from_participation))}"></div>
-                    <div><label>Проценты к получению, руб</label><input data-bm-fin="interest_receivable" inputmode="decimal" value="${esc(numOrEmpty(inputs.interest_receivable))}"></div>
-                    <div><label>Прочие доходы, руб</label><input data-bm-fin="other_income" inputmode="decimal" value="${esc(numOrEmpty(inputs.other_income))}"></div>
-                    <div><label>Собственные средства (СК), руб</label><input data-bm-fin="equity" inputmode="decimal" value="${esc(numOrEmpty(inputs.equity))}"></div>
-                    <div><label>Текущие активы, руб</label><input data-bm-fin="current_assets" inputmode="decimal" value="${esc(numOrEmpty(inputs.current_assets))}"></div>
-                    <div><label>Текущие обязательства, руб</label><input data-bm-fin="current_liabilities" inputmode="decimal" value="${esc(numOrEmpty(inputs.current_liabilities))}"></div>
-                    <div><label>Долгосрочные обязательства, руб</label><input data-bm-fin="long_term_liabilities" inputmode="decimal" value="${esc(numOrEmpty(inputs.long_term_liabilities))}"></div>
-                    <div><label>Валюта баланса (итог), руб</label><input data-bm-fin="balance_total" inputmode="decimal" value="${esc(numOrEmpty(inputs.balance_total))}"></div>
-                    <div><label>Краткосрочные займы, руб</label><input data-bm-fin="short_term_borrowings" inputmode="decimal" value="${esc(numOrEmpty(inputs.short_term_borrowings))}"></div>
-                    <div><label>Кредиторская задолженность, руб</label><input data-bm-fin="accounts_payable" inputmode="decimal" value="${esc(numOrEmpty(inputs.accounts_payable))}"></div>
-                    <div><label>Прочие краткосрочные обязательства, руб</label><input data-bm-fin="other_short_liabilities" inputmode="decimal" value="${esc(numOrEmpty(inputs.other_short_liabilities))}"></div>
-                    <div><label>Долгосрочные займы, руб</label><input data-bm-fin="long_term_borrowings" inputmode="decimal" value="${esc(numOrEmpty(inputs.long_term_borrowings))}"></div>
-                    <div><label>Отчётный период</label>
-                        <select data-bm-fin="reporting_period">
-                            <option value="annual" ${!inputs.reporting_period || inputs.reporting_period === 'annual' ? 'selected' : ''}>Год / иной период</option>
-                            <option value="q1" ${inputs.reporting_period === 'q1' ? 'selected' : ''}>1 квартал</option>
-                            <option value="q2" ${inputs.reporting_period === 'q2' ? 'selected' : ''}>2 квартал</option>
-                            <option value="q3" ${inputs.reporting_period === 'q3' ? 'selected' : ''}>9 месяцев / 3 кв.</option>
-                            <option value="9m" ${inputs.reporting_period === '9m' ? 'selected' : ''}>9 месяцев</option>
-                        </select>
+                <div class="bm-fin-blocks">
+                    <div class="bm-fin-block">
+                        <div class="bm-fin-block-title">Контекст</div>
+                        <div class="bm-inputs bm-inputs-2">
+                            <div class="bm-field">
+                                <label>Отчётный период</label>
+                                <select data-bm-fin="reporting_period">
+                                    <option value="annual" ${!inputs.reporting_period || inputs.reporting_period === 'annual' ? 'selected' : ''}>Год / иной период</option>
+                                    <option value="q1" ${inputs.reporting_period === 'q1' ? 'selected' : ''}>1 квартал</option>
+                                    <option value="q2" ${inputs.reporting_period === 'q2' ? 'selected' : ''}>2 квартал</option>
+                                    <option value="q3" ${inputs.reporting_period === 'q3' ? 'selected' : ''}>9 месяцев / 3 кв.</option>
+                                    <option value="9m" ${inputs.reporting_period === '9m' ? 'selected' : ''}>9 месяцев</option>
+                                </select>
+                            </div>
+                            <div class="bm-field">
+                                <label>Отрасль</label>
+                                <select data-bm-fin="industry">
+                                    <option value="default" ${inputs.industry === 'default' || !inputs.industry ? 'selected' : ''}>Обычная</option>
+                                    <option value="leasing" ${inputs.industry === 'leasing' ? 'selected' : ''}>Лизинг</option>
+                                    <option value="factoring" ${inputs.industry === 'factoring' ? 'selected' : ''}>Факторинг</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="bm-q1-block${isQ1 ? ' is-visible' : ''}" data-bm-q1-block ${isQ1 ? '' : 'hidden'}>
+                            <label class="bm-inline-check"><input type="checkbox" data-bm-fin-flag="q1_seasonal_loss_explained" ${inputs.q1_seasonal_loss_explained ? 'checked' : ''}> Убыток 1 кв. — сезонность</label>
+                            <div class="bm-field bm-field-grow">
+                                <label>Комментарий к сезонности</label>
+                                <input data-bm-fin="q1_seasonal_comment" value="${esc(inputs.q1_seasonal_comment || '')}" placeholder="Обоснование сезонности">
+                            </div>
+                        </div>
                     </div>
-                    <div><label>Отрасль</label>
-                        <select data-bm-fin="industry">
-                            <option value="default" ${inputs.industry === 'default' || !inputs.industry ? 'selected' : ''}>Обычная</option>
-                            <option value="leasing" ${inputs.industry === 'leasing' ? 'selected' : ''}>Лизинг</option>
-                            <option value="factoring" ${inputs.industry === 'factoring' ? 'selected' : ''}>Факторинг</option>
-                        </select>
+
+                    <div class="bm-fin-block">
+                        <div class="bm-fin-block-title">ОПиУ</div>
+                        <div class="bm-inputs bm-inputs-2">
+                            ${finField('Выручка (период)', 'revenue')}
+                            ${finField('Выручка (год)', 'revenue_last_year')}
+                            ${finField('Чистая прибыль (период)', 'net_profit')}
+                            ${finField('Чистая прибыль (год)', 'prior_year_net_profit')}
+                        </div>
+                        <details class="bm-fin-details">
+                            <summary>Аналог выручки <span class="bm-muted-note">если выручка = 0</span></summary>
+                            <div class="bm-inputs bm-inputs-3">
+                                ${finField('Доходы от участия', 'income_from_participation')}
+                                ${finField('Проценты к получению', 'interest_receivable')}
+                                ${finField('Прочие доходы', 'other_income')}
+                            </div>
+                        </details>
                     </div>
-                    <div>
-                        <label>&nbsp;</label>
-                        <label class="bm-inline-check"><input type="checkbox" data-bm-fin-flag="q1_seasonal_loss_explained" ${inputs.q1_seasonal_loss_explained ? 'checked' : ''}> Убыток 1 кв. — сезонность</label>
+
+                    <div class="bm-fin-block">
+                        <div class="bm-fin-block-title">Баланс</div>
+                        <div class="bm-inputs bm-inputs-3">
+                            ${finField('СК', 'equity')}
+                            ${finField('Текущие активы', 'current_assets')}
+                            ${finField('Текущие обязательства', 'current_liabilities')}
+                            ${finField('Долгосрочные обязательства', 'long_term_liabilities')}
+                            ${finField('Валюта баланса', 'balance_total')}
+                        </div>
                     </div>
-                    <div style="grid-column:1/-1">
-                        <label>Комментарий к убытку 1 кв. (обязателен для правила сезонности)</label>
-                        <input data-bm-fin="q1_seasonal_comment" value="${esc(inputs.q1_seasonal_comment || '')}" placeholder="Обоснование сезонности">
+
+                    <div class="bm-fin-block">
+                        <div class="bm-fin-block-title">Долг</div>
+                        <div class="bm-inputs bm-inputs-2">
+                            ${finField('Краткосрочные займы', 'short_term_borrowings')}
+                            ${finField('Кредиторская задолженность', 'accounts_payable')}
+                            ${finField('Прочие краткоср. обязательства', 'other_short_liabilities')}
+                            ${finField('Долгосрочные займы', 'long_term_borrowings')}
+                        </div>
                     </div>
                 </div>`;
 
             const finMetrics = rules.finance_metrics || {};
-            const finMetricsHtml = Object.keys(finMetrics).map(function (id) {
-                const m = finMetrics[id];
-                return `
-                <div class="bm-metric bm-metric-compact">
-                    <div>
+            const finGroups = rules.finance_groups || {};
+            const metricsByGroup = {};
+            Object.keys(finMetrics).forEach(function (id) {
+                const g = finMetrics[id].group || 'other';
+                if (!metricsByGroup[g]) metricsByGroup[g] = [];
+                metricsByGroup[g].push(id);
+            });
+            const finGroupOrder = Object.keys(finGroups).length
+                ? Object.keys(finGroups)
+                : Object.keys(metricsByGroup);
+            const finMetricsHtml = finGroupOrder.map(function (gid) {
+                const ids = metricsByGroup[gid] || [];
+                if (!ids.length) return '';
+                const gLabel = (finGroups[gid] && finGroups[gid].label) || gid;
+                const rows = ids.map(function (id) {
+                    const m = finMetrics[id];
+                    return `
+                    <div class="bm-fin-metric-row">
                         <div class="name">${esc(m.label)}</div>
-                        <div class="hint" data-bm-fin-note="${esc(id)}"></div>
-                    </div>
-                    <div>
-                        <label>Балл</label>
-                        <div><span class="score-pill" data-bm-fin-pill="${esc(id)}">—</span></div>
-                    </div>
+                        <div class="note" data-bm-fin-note="${esc(id)}"></div>
+                        <span class="score-pill" data-bm-fin-pill="${esc(id)}">—</span>
+                    </div>`;
+                }).join('');
+                return `
+                <div class="bm-fin-group">
+                    <div class="bm-fin-group-title">${esc(gLabel)}</div>
+                    <div class="bm-fin-metric-list">${rows}</div>
                 </div>`;
             }).join('');
 
-            const bizHtml = Object.keys(rules.business_metrics || {}).map(function (id) {
-                const m = rules.business_metrics[id];
-                const row = state.business[id] || {};
-                const opts = (m.options || []).map(function (o) {
-                    return `<option value="${esc(o.value)}" ${String(row.value) === String(o.value) ? 'selected' : ''}>${esc(o.label)} (${o.score})</option>`;
+            const bizGroups = [
+                { title: 'КИ и срок', ids: ['credit_history', 'company_age'] },
+                { title: 'Контракты', ids: ['comparable_contracts', 'gov_contracts'] },
+                { title: 'Собственники, правовые риски и учёт', ids: ['ownership_stability', 'legal_risk_client', 'legal_risk_founders', 'accounting_accuracy'] },
+            ];
+            const bizHtml = bizGroups.map(function (grp) {
+                const rows = grp.ids.map(function (id) {
+                    const m = (rules.business_metrics || {})[id];
+                    if (!m) return '';
+                    const row = state.business[id] || {};
+                    const opts = (m.options || []).map(function (o) {
+                        return `<option value="${esc(o.value)}" ${String(row.value) === String(o.value) ? 'selected' : ''}>${esc(o.label)} (${o.score})</option>`;
+                    }).join('');
+                    const hint = m.hint || (m.manual_only ? 'только вручную' : '');
+                    const hintHtml = hint
+                        ? `<span class="bm-hint" title="${esc(hint)}"><span class="bm-hint-icon">i</span><span class="bm-hint-text">${esc(hint)}${m.manual_only && m.hint ? ' · только вручную' : (m.manual_only && !m.hint ? '' : '')}</span></span>`
+                        : '';
+                    return `
+                    <div class="bm-biz-row">
+                        <div class="bm-biz-name">
+                            <span class="name">${esc(m.label)}</span>
+                            ${hintHtml}
+                        </div>
+                        <select data-bm-biz="${esc(id)}">
+                            <option value="">— выберите —</option>
+                            ${opts}
+                        </select>
+                        <span class="score-pill" data-bm-biz-pill="${esc(id)}">—</span>
+                    </div>`;
                 }).join('');
                 return `
-                <div class="bm-metric bm-metric-compact">
-                    <div>
-                        <div class="name">${esc(m.label)}</div>
-                        <div class="hint">${esc(m.hint || '')}${m.manual_only ? ' · только вручную' : ''}</div>
-                        <div class="mt-2">
-                            <select data-bm-biz="${esc(id)}">
-                                <option value="">— выберите —</option>
-                                ${opts}
-                            </select>
-                        </div>
-                    </div>
-                    <div>
-                        <label>Балл</label>
-                        <div><span class="score-pill" data-bm-biz-pill="${esc(id)}">—</span></div>
-                    </div>
+                <div class="bm-biz-group">
+                    <div class="bm-biz-subhead">${esc(grp.title)}</div>
+                    ${rows}
                 </div>`;
             }).join('');
 
@@ -398,9 +579,15 @@
             const ratingOpts = (rules.rating_scale || []).map(function (row) {
                 return `<option value="${esc(row.rating)}" ${String(j.established_rating || '') === String(row.rating) ? 'selected' : ''}>${esc(row.rating)} — ${esc(row.category)}</option>`;
             }).join('');
-            const hist = (history || []).slice(0, 8).map(function (h) {
-                return `v${h.version} · ${h.status} · ${h.rating || '—'} · ${h.total_score != null ? h.total_score : '—'}`;
-            }).join(' · ');
+            const r0 = (evaluated && evaluated.result) || {};
+            const calcLetter = r0.incomplete ? '' : (r0.calculated_rating || r0.rating || '');
+            const calcCat = ratingCategory(calcLetter);
+            const calcText = r0.incomplete
+                ? 'Расчётный: —'
+                : ('Расчётный: ' + (calcLetter || '—') + (calcCat ? ' · ' + calcCat : ''));
+            const histItems = (history || []).slice(0, 8).map(function (h) {
+                return `<li>v${esc(h.version)} · ${esc(h.status)} · ${esc(h.rating || '—')} · ${esc(h.total_score != null ? h.total_score : '—')}</li>`;
+            }).join('');
 
             const actionsHtml = locked
                 ? `<button type="button" class="btn btn-primary btn-sm" data-bm-action="newdraft" title="Создать редактируемую версию на базе зафиксированной"><i class="bi bi-plus-lg me-1"></i>Новый черновик</button>`
@@ -408,12 +595,20 @@
                         <button type="button" class="btn btn-outline-primary btn-sm" data-bm-action="save"><i class="bi bi-save me-1"></i>Сохранить черновик</button>
                         <button type="button" class="btn btn-primary btn-sm" data-bm-action="finalize"><i class="bi bi-check2-circle me-1"></i>Зафиксировать</button>`;
 
+            const rMeta = (evaluated && evaluated.result) || {};
+            const sectionMeta = {
+                stops: 'отмечено ' + stopCountsNow.on,
+                finance: fmtScore(rMeta.finance_score) + '/50',
+                business: fmtScore(rMeta.business_score) + '/50',
+                judgment: rMeta.incomplete ? '—' : (rMeta.rating || '—'),
+            };
+
             root.innerHTML = `
             <div class="bm-wrap${locked ? ' is-locked' : ''}">
                 <div class="bm-hero">
-                    <div>
+                    <div class="bm-hero-text">
                         <h4>Банковская методика</h4>
-                        <p>Авторасчёт по шкалам методики и ручная корректировка менеджером. Фиксация создаёт официальную версию по заявке.</p>
+                        <p>Авторасчёт по шкалам и ручная корректировка. Фиксация — официальная версия по заявке.</p>
                     </div>
                     <div class="bm-actions">
                         ${actionsHtml}
@@ -422,37 +617,51 @@
                 <div data-bm-summary class="bm-summary"></div>
                 <div data-bm-banners></div>
 
-                <div class="bm-section" data-bm-section="stops">
-                    <div class="bm-section-head"><h5>1. Стоп-факторы</h5><span class="meta">обязательные и условные</span></div>
-                    <div class="bm-section-body"><div class="bm-stop-groups">${stopHtml}</div></div>
-                </div>
-
-                <div class="bm-section" data-bm-section="finance">
-                    <div class="bm-section-head"><h5>2. Финансы</h5><span class="meta">до 50 баллов</span></div>
+                <div class="bm-section${sectionCollapsed.stops ? ' is-collapsed' : ''}" data-bm-section="stops">
+                    <div class="bm-section-head"><h5>1. Стоп-факторы</h5><span class="meta">${esc(sectionMeta.stops)}</span></div>
                     <div class="bm-section-body">
-                        ${finInputsHtml}
-                        <div class="bm-finance-grid">${finMetricsHtml}</div>
+                        <div class="bm-stop-toolbar">
+                            <span class="bm-stop-count" data-bm-stop-count>Отмечено ${stopCountsNow.on} из ${stopCountsNow.total}</span>
+                            <div class="bm-stop-filters" role="group" aria-label="Фильтр стоп-факторов">
+                                <button type="button" class="bm-chip${stopFilter === 'all' ? ' is-active' : ''}" data-bm-stop-filter="all">Все</button>
+                                <button type="button" class="bm-chip${stopFilter === 'triggered' ? ' is-active' : ''}" data-bm-stop-filter="triggered">Только отмеченные</button>
+                            </div>
+                        </div>
+                        <div class="bm-stop-groups">${stopHtml}</div>
                     </div>
                 </div>
 
-                <div class="bm-section" data-bm-section="business">
-                    <div class="bm-section-head"><h5>3. Бизнес-риск</h5><span class="meta">до 50 баллов</span></div>
-                    <div class="bm-section-body"><div class="bm-business-grid">${bizHtml}</div></div>
+                <div class="bm-section${sectionCollapsed.finance ? ' is-collapsed' : ''}" data-bm-section="finance">
+                    <div class="bm-section-head"><h5>2. Финансы</h5><span class="meta">${esc(sectionMeta.finance)}</span></div>
+                    <div class="bm-section-body">
+                        ${finInputsHtml}
+                        <div class="bm-finance-metrics">${finMetricsHtml}</div>
+                    </div>
                 </div>
 
-                <div class="bm-section" data-bm-section="judgment">
-                    <div class="bm-section-head"><h5>4. Профсуждение</h5><span class="meta">расчётный и установленный рейтинг</span></div>
+                <div class="bm-section${sectionCollapsed.business ? ' is-collapsed' : ''}" data-bm-section="business">
+                    <div class="bm-section-head"><h5>3. Бизнес-риск</h5><span class="meta">${esc(sectionMeta.business)}</span></div>
+                    <div class="bm-section-body"><div class="bm-business-list">${bizHtml}</div></div>
+                </div>
+
+                <div class="bm-section${sectionCollapsed.judgment ? ' is-collapsed' : ''}" data-bm-section="judgment">
+                    <div class="bm-section-head"><h5>4. Профсуждение</h5><span class="meta">${esc(sectionMeta.judgment)}</span></div>
                     <div class="bm-section-body bm-judgment">
                         <div class="mb-3">
                             <label class="form-label small text-muted fw-bold">Комментарий</label>
                             <textarea data-bm-judgment="comment" placeholder="Профессиональное суждение по оценке">${esc(j.comment || '')}</textarea>
                         </div>
-                        <div class="mb-3">
-                            <label class="form-label small text-muted fw-bold">Установленный рейтинг</label>
-                            <select data-bm-judgment="established_rating">
-                                <option value="">— как расчётный —</option>
-                                ${ratingOpts}
-                            </select>
+                        <div class="bm-judgment-rating mb-3">
+                            <div class="bm-judgment-rating-row">
+                                <div class="bm-field bm-field-grow">
+                                    <label class="form-label small text-muted fw-bold">Установленный рейтинг</label>
+                                    <select data-bm-judgment="established_rating">
+                                        <option value="">— как расчётный —</option>
+                                        ${ratingOpts}
+                                    </select>
+                                </div>
+                                <div class="bm-judgment-calc" data-bm-judgment-calc>${esc(calcText)}</div>
+                            </div>
                             <div class="hint mt-1">Расчётный рейтинг можно скорректировать с обоснованием.</div>
                         </div>
                         <div class="mb-3">
@@ -462,16 +671,24 @@
                         <div class="bm-checks">
                             <label><input type="checkbox" data-bm-judgment="force_not_good" ${j.force_not_good ? 'checked' : ''}> Обстоятельства 590-П, исключающие «Хорошее»</label>
                         </div>
-                        <div class="bm-history mt-3">${hist ? ('История: ' + esc(hist)) : 'История версий появится после сохранений'}</div>
+                        <div class="bm-history mt-3">
+                            ${histItems
+                                ? ('<div class="bm-history-title">История</div><ul class="bm-history-list">' + histItems + '</ul>')
+                                : '<div class="bm-history-empty">История версий появится после сохранений</div>'}
+                        </div>
                     </div>
                 </div>
             </div>`;
 
             bind();
             applyLockState();
+            applyStopFilter();
+            applyQ1Visibility();
             renderSummary();
             renderBanners();
             renderMetricScores();
+            updateSectionMeta();
+            updateJudgmentCalc();
         }
 
         function applyLockState() {
@@ -481,12 +698,22 @@
             root.querySelectorAll('input, select, textarea').forEach(function (el) {
                 el.disabled = locked;
             });
+            root.querySelectorAll('[data-bm-stop-more], [data-bm-stop-filter], [data-bm-stop-group-toggle]').forEach(function (el) {
+                // info/filter/toggle remain usable when locked for reading
+                el.disabled = false;
+            });
         }
 
         function bind() {
             root.querySelectorAll('.bm-section-head').forEach(function (head) {
                 head.addEventListener('click', function () {
-                    head.parentElement.classList.toggle('is-collapsed');
+                    const section = head.parentElement;
+                    if (!section) return;
+                    const key = section.getAttribute('data-bm-section');
+                    section.classList.toggle('is-collapsed');
+                    if (key && Object.prototype.hasOwnProperty.call(sectionCollapsed, key)) {
+                        sectionCollapsed[key] = section.classList.contains('is-collapsed');
+                    }
                 });
             });
 
@@ -506,9 +733,61 @@
             root.querySelectorAll('[data-bm-stop]').forEach(function (el) {
                 el.addEventListener('change', function () {
                     const item = el.closest('.bm-stop-item');
-                    if (item) item.classList.toggle('is-on', !!el.checked);
+                    if (item) {
+                        item.classList.toggle('is-on', !!el.checked);
+                        const ta = item.querySelector('textarea[data-bm-stop-comment]');
+                        if (ta) ta.hidden = !el.checked;
+                    }
+                    updateStopToolbar();
+                    applyStopFilter();
+                    updateSectionMeta();
                 });
             });
+
+            root.querySelectorAll('[data-bm-stop-more]').forEach(function (btn) {
+                btn.addEventListener('click', function (e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const code = btn.getAttribute('data-bm-stop-more');
+                    const item = btn.closest('.bm-stop-item');
+                    if (!item || !code) return;
+                    const open = !item.classList.contains('is-more-open');
+                    item.classList.toggle('is-more-open', open);
+                    btn.classList.toggle('is-open', open);
+                    btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+                    const full = item.querySelector('.bm-stop-full');
+                    if (full) full.hidden = !open;
+                    stopMoreOpen[code] = open;
+                });
+            });
+
+            root.querySelectorAll('[data-bm-stop-filter]').forEach(function (btn) {
+                btn.addEventListener('click', function (e) {
+                    e.preventDefault();
+                    stopFilter = btn.getAttribute('data-bm-stop-filter') || 'all';
+                    applyStopFilter();
+                });
+            });
+
+            root.querySelectorAll('[data-bm-stop-group-toggle]').forEach(function (btn) {
+                btn.addEventListener('click', function (e) {
+                    e.preventDefault();
+                    const gid = btn.getAttribute('data-bm-stop-group-toggle');
+                    const group = btn.closest('[data-bm-stop-group]');
+                    if (!group || !gid) return;
+                    const collapsed = !group.classList.contains('is-collapsed');
+                    group.classList.toggle('is-collapsed', collapsed);
+                    btn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+                    stopGroupCollapsed[gid] = collapsed;
+                });
+            });
+
+            const periodSel = root.querySelector('[data-bm-fin="reporting_period"]');
+            if (periodSel) {
+                periodSel.addEventListener('change', function () {
+                    applyQ1Visibility();
+                });
+            }
 
             const act = async function (name) {
                 try {
@@ -534,6 +813,8 @@
                         renderSummary();
                         renderBanners();
                         renderMetricScores();
+                        updateSectionMeta();
+                        updateJudgmentCalc();
                         notify(data.message || 'Сохранено', 'success');
                         return;
                     }
@@ -551,6 +832,8 @@
                             renderSummary();
                             renderBanners();
                             renderMetricScores();
+                            updateSectionMeta();
+                            updateJudgmentCalc();
                             if (preview.evaluated.result && preview.evaluated.result.incomplete) {
                                 throw new Error('Нельзя зафиксировать: заполните все показатели финансов и бизнес-риска.');
                             }
@@ -651,6 +934,10 @@
                 evaluated = null;
                 assessment = null;
                 history = [];
+                stopFilter = 'all';
+                stopGroupCollapsed = {};
+                stopMoreOpen = {};
+                sectionCollapsed = { stops: false, finance: true, business: true, judgment: true };
                 if (loaded) {
                     load();
                 } else {
