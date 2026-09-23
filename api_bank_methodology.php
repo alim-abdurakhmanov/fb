@@ -213,6 +213,25 @@ try {
         ]);
     }
 
+    if ($action === 'reset_draft' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+        $latest = bank_methodology_fetch_latest($pdo, $applicationId);
+        if (!$latest || ($latest['status'] ?? '') !== 'draft') {
+            bank_methodology_json([
+                'success' => false,
+                'error' => 'Нет сохранённого черновика для сброса',
+            ]);
+        }
+        $empty = bank_methodology_empty_state();
+        $saved = bank_methodology_save_draft($pdo, $applicationId, $userId, $empty);
+        $evaluated = bank_methodology_evaluate($saved['state']);
+        bank_methodology_json([
+            'success' => true,
+            'assessment' => $saved,
+            'evaluated' => $evaluated,
+            'message' => 'Черновик сброшен',
+        ]);
+    }
+
     if ($action === 'pull_checko' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         $inn = preg_replace('/\D+/', '', (string) ($appRow['inn'] ?? '')) ?? '';
         if (strlen($inn) < 10) {
