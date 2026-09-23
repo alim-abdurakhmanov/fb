@@ -309,15 +309,12 @@ function bank_methodology_checko_propose(string $inn): array
     $financeInputs = [];
     $years = bank_methodology_checko_finance_years($finance);
     $latest = bank_methodology_checko_pick_year($years, true);
-    $prev = null;
     if ($latest !== null) {
-        foreach (array_reverse($years) as $row) {
-            if ($row['year'] < $latest['year']) {
-                $prev = $row;
-                break;
-            }
-        }
         $src = $latest['src'];
+        // Checko отдаёт только годовую отчётность (ГИР БО) → период = annual.
+        // «Период» и «год» при annual — один и тот же последний завершённый год.
+        // Квартальные цифры Checko не даёт: при смене периода на q1/q2/9m
+        // поля «период» нужно править вручную, «год» оставлять годовым.
         $map = [
             'revenue' => $src['2110'] ?? $src['Выручка'] ?? null,
             'revenue_last_year' => $src['2110'] ?? $src['Выручка'] ?? null,
@@ -334,15 +331,6 @@ function bank_methodology_checko_propose(string $inn): array
             if ($num !== null) {
                 $financeInputs[$key] = $num;
             }
-        }
-        if ($prev !== null) {
-            $prevProfit = bank_methodology_checko_metric($prev['src']['2400'] ?? $prev['src']['ЧистПриб'] ?? null);
-            if ($prevProfit !== null) {
-                $financeInputs['prior_year_net_profit'] = $prevProfit;
-            }
-            $prevRev = bank_methodology_checko_metric($prev['src']['2110'] ?? $prev['src']['Выручка'] ?? null);
-            // Выручка (год) — последний завершённый год; при наличии prev оставляем latest как год.
-            // prior_year_net_profit уже с prev; revenue_last_year = latest year revenue.
         }
         $financeInputs['reporting_period'] = 'annual';
     }
