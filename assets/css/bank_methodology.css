@@ -207,9 +207,6 @@
     border-radius: 12px 12px 0 0;
     cursor: pointer;
     user-select: none;
-    position: sticky;
-    /* Под navbar + sticky KPI (--bm-summary-offset задаётся из JS) */
-    top: calc(var(--top-navbar-height, 60px) + var(--bm-summary-offset, 5rem));
     z-index: 25;
     backdrop-filter: blur(10px);
     box-shadow: 0 1px 0 rgba(255, 255, 255, 0.7) inset;
@@ -220,10 +217,22 @@
     border-radius: 12px;
 }
 
-.bm-section-head.is-stuck {
+.bm-section-head.is-pinned {
     box-shadow:
         0 1px 0 rgba(255, 255, 255, 0.7) inset,
-        0 6px 16px rgba(27, 40, 56, 0.08);
+        0 8px 20px rgba(27, 40, 56, 0.12);
+    border: 1px solid var(--bm-line);
+    border-radius: 12px;
+    background:
+        linear-gradient(180deg, rgba(252, 253, 255, 0.99) 0%, rgba(245, 248, 252, 0.99) 100%);
+}
+
+.bm-section-head-spacer {
+    display: block;
+    width: 100%;
+    flex: 0 0 auto;
+    pointer-events: none;
+    visibility: hidden;
 }
 
 .bm-section-chevron {
@@ -573,17 +582,25 @@
     background: var(--bm-soft);
     border: 1px solid #e8eef5;
     gap: 0.55rem;
-    align-items: flex-end;
 }
 
 .bm-q1-block.is-visible {
-    display: grid;
-    grid-template-columns: auto 1fr;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+}
+
+.bm-q1-block .bm-inline-check {
+    align-self: flex-start;
+}
+
+.bm-q1-comment.is-hidden {
+    display: none !important;
 }
 
 @media (max-width: 700px) {
     .bm-q1-block.is-visible {
-        grid-template-columns: 1fr;
+        display: flex;
     }
 }
 

@@ -59,6 +59,9 @@
         let autosaveTimer = null;
         let autosaving = false;
         let editGeneration = 0;
+        let saveHint = ''; // '' | 'сохранение' | 'сохранено'
+        let saveHintTimer = null;
+        let stickyScrollBound = false;
 
         async function api(action, payload) {
             if (action === 'get') {
@@ -168,9 +171,24 @@
             if (isLocked()) {
                 return dirty ? 'зафиксировано · изменённый просмотр' : 'зафиксировано';
             }
-            if (autosaving) return 'черновик · сохранение…';
+            if (saveHint === 'сохранение' || autosaving) return 'черновик · сохранение';
+            if (saveHint === 'сохранено' && !dirty) return 'черновик · сохранено';
             if (dirty) return 'черновик · не сохранено';
             return 'черновик';
+        }
+
+        function setSaveHint(hint, holdMs) {
+            saveHint = hint || '';
+            clearTimeout(saveHintTimer);
+            renderSummary();
+            if (holdMs && hint) {
+                saveHintTimer = setTimeout(function () {
+                    if (saveHint === hint) {
+                        saveHint = '';
+                        renderSummary();
+                    }
+                }, holdMs);
+            }
         }
 
         async function autosaveDraft() {
@@ -179,12 +197,11 @@
             if (!s) return;
             const gen = editGeneration;
             autosaving = true;
-            renderSummary();
+            setSaveHint('сохранение');
             try {
                 const data = await api('save_draft', { state: s });
                 if (!data.success) throw new Error(data.error || 'Ошибка автосохранения');
                 if (gen !== editGeneration) {
-                    // Пока сохраняли, пользователь снова правил — не сбрасываем dirty.
                     return;
                 }
                 assessment = data.assessment;
@@ -192,16 +209,21 @@
                 state = data.evaluated.state;
                 dirty = false;
                 history = await reloadHistory();
-                renderSummary();
                 renderBanners();
                 renderMetricScores();
                 updateSectionMeta();
                 updateJudgmentCalc();
+                setSaveHint('сохранено', 2000);
             } catch (err) {
                 console.warn('autosave failed', err);
+                saveHint = '';
+                renderSummary();
             } finally {
                 autosaving = false;
-                renderSummary();
+                if (saveHint === 'сохранение') {
+                    saveHint = dirty ? '' : 'сохранено';
+                    renderSummary();
+                }
             }
         }
 
@@ -289,13 +311,14 @@
             const sel = root.querySelector('[data-bm-fin="reporting_period"]');
             const block = root.querySelector('[data-bm-q1-block]');
             if (!block) return;
-            const isQ1 = sel && sel.value === 'q1';
-            block.classList.toggle('is-visible', !!isQ1);
+            const isQ1 = !!(sel && sel.value === 'q1');
+            block.classList.toggle('is-visible', isQ1);
             block.hidden = !isQ1;
             const flag = root.querySelector('[data-bm-fin-flag="q1_seasonal_loss_explained"]');
             const commentWrap = root.querySelector('[data-bm-q1-comment]');
             if (commentWrap) {
-                const showComment = !!isQ1 && !!(flag && flag.checked);
+                const showComment = isQ1 && !!(flag && flag.checked);
+                commentWrap.classList.toggle('is-hidden', !showComment);
                 commentWrap.hidden = !showComment;
             }
         }
@@ -357,6 +380,96 @@
                 offsetPx = summary.offsetHeight + 8;
             }
             wrap.style.setProperty('--bm-summary-offset', offsetPx + 'px');
+        }
+
+        function navbarHeightPx() {
+            const raw = getComputedStyle(document.documentElement)
+                .getPropertyValue('--top-navbar-height')
+                .trim();
+            const n = parseFloat(raw);
+            return Number.isFinite(n) && n > 0 ? n : 60;
+        }
+
+        function pinTopPx() {
+            const summary = root.querySelector('[data-bm-summary]');
+            const summaryH = summary && summary.offsetHeight ? summary.offsetHeight : 0;
+            return navbarHeightPx() + 8 + summaryH + 6;
+        }
+
+        function ensureHeadSpacer(head) {
+            let spacer = head.previousElementSibling;
+            if (!spacer || !spacer.classList.contains('bm-section-head-spacer')) {
+                spacer = document.createElement('div');
+                spacer.className = 'bm-section-head-spacer';
+                spacer.hidden = true;
+                spacer.setAttribute('aria-hidden', 'true');
+                head.parentElement.insertBefore(spacer, head);
+            }
+            return spacer;
+        }
+
+        function unpinSectionHead(head) {
+            const spacer = head.previousElementSibling;
+            head.classList.remove('is-pinned');
+            head.style.position = '';
+            head.style.top = '';
+            head.style.left = '';
+            head.style.width = '';
+            head.style.zIndex = '';
+            if (spacer && spacer.classList.contains('bm-section-head-spacer')) {
+                spacer.hidden = true;
+                spacer.style.height = '';
+            }
+        }
+
+        function pinSectionHeads() {
+            const sections = root.querySelectorAll('.bm-section[data-bm-section]');
+            if (!sections.length) return;
+            const top = pinTopPx();
+
+            sections.forEach(function (section) {
+                const head = section.firstElementChild && section.firstElementChild.classList.contains('bm-section-head-spacer')
+                    ? section.children[1]
+                    : section.querySelector('.bm-section-head');
+                if (!head || !head.classList.contains('bm-section-head')) return;
+                const spacer = ensureHeadSpacer(head);
+
+                if (section.classList.contains('is-collapsed')) {
+                    unpinSectionHead(head);
+                    return;
+                }
+
+                const headH = head.offsetHeight || spacer.offsetHeight || 48;
+                const sectionRect = section.getBoundingClientRect();
+                const shouldPin = sectionRect.top < top && sectionRect.bottom > top + headH + 4;
+
+                if (!shouldPin) {
+                    unpinSectionHead(head);
+                    return;
+                }
+
+                // Уезжает вверх вместе с низом секции
+                const clampedTop = Math.min(top, sectionRect.bottom - headH - 2);
+
+                spacer.style.height = headH + 'px';
+                spacer.hidden = false;
+                head.classList.add('is-pinned');
+                head.style.position = 'fixed';
+                head.style.top = Math.max(sectionRect.top, clampedTop) + 'px';
+                head.style.left = sectionRect.left + 'px';
+                head.style.width = sectionRect.width + 'px';
+                head.style.zIndex = '26';
+            });
+        }
+
+        function ensureStickyScrollBound() {
+            if (stickyScrollBound) return;
+            stickyScrollBound = true;
+            window.addEventListener('scroll', pinSectionHeads, { passive: true });
+            window.addEventListener('resize', function () {
+                updateStickyOffsets();
+                pinSectionHeads();
+            });
         }
 
         function renderBanners() {
@@ -533,7 +646,7 @@
                         </div>
                         <div class="bm-q1-block${isQ1 ? ' is-visible' : ''}" data-bm-q1-block ${isQ1 ? '' : 'hidden'}>
                             <label class="bm-inline-check"><input type="checkbox" data-bm-fin-flag="q1_seasonal_loss_explained" ${inputs.q1_seasonal_loss_explained ? 'checked' : ''}> Убыток 1 кв. — сезонность</label>
-                            <div class="bm-field bm-field-grow" data-bm-q1-comment ${inputs.q1_seasonal_loss_explained ? '' : 'hidden'}>
+                            <div class="bm-field bm-field-grow bm-q1-comment${!inputs.q1_seasonal_loss_explained ? ' is-hidden' : ''}" data-bm-q1-comment>
                                 <label>Комментарий к сезонности</label>
                                 <input data-bm-fin="q1_seasonal_comment" value="${esc(inputs.q1_seasonal_comment || '')}" placeholder="Обоснование сезонности">
                             </div>
@@ -782,6 +895,8 @@
             updateSectionMeta();
             updateJudgmentCalc();
             updateStickyOffsets();
+            ensureStickyScrollBound();
+            pinSectionHeads();
         }
 
         function applyLockState() {
@@ -809,6 +924,9 @@
                     if (key && Object.prototype.hasOwnProperty.call(sectionCollapsed, key)) {
                         sectionCollapsed[key] = collapsed;
                     }
+                    if (collapsed) unpinSectionHead(head);
+                    updateStickyOffsets();
+                    pinSectionHeads();
                 });
             });
 
@@ -884,6 +1002,16 @@
             if (periodSel) {
                 periodSel.addEventListener('change', function () {
                     applyQ1Visibility();
+                });
+            }
+            const q1Flag = root.querySelector('[data-bm-fin-flag="q1_seasonal_loss_explained"]');
+            if (q1Flag) {
+                q1Flag.addEventListener('change', function () {
+                    applyQ1Visibility();
+                });
+                q1Flag.addEventListener('click', function () {
+                    // click раньше change — синхронно показать поле по текущему checked
+                    requestAnimationFrame(applyQ1Visibility);
                 });
             }
 
@@ -1021,10 +1149,6 @@
             if (!dirty || isLocked()) return;
             e.preventDefault();
             e.returnValue = '';
-        });
-
-        window.addEventListener('resize', function () {
-            updateStickyOffsets();
         });
 
         const ctl = {
