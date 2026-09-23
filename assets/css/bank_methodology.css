@@ -198,8 +198,7 @@
 .bm-section-head {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 0.75rem;
+    gap: 0.55rem;
     padding: 0.7rem 1rem;
     background: linear-gradient(180deg, #fcfdff 0%, #f5f8fc 100%);
     border-bottom: 1px solid var(--bm-line);
@@ -211,10 +210,27 @@
     border-bottom-color: transparent;
 }
 
+.bm-section-chevron {
+    width: 0.45rem;
+    height: 0.45rem;
+    border-right: 1.6px solid #8a9aab;
+    border-bottom: 1.6px solid #8a9aab;
+    transform: rotate(45deg);
+    flex: 0 0 auto;
+    margin: 0 0.15rem 0.1rem 0.05rem;
+    transition: transform 0.15s ease;
+}
+
+.bm-section.is-collapsed .bm-section-chevron {
+    transform: rotate(-45deg);
+    margin-bottom: 0;
+}
+
 .bm-section-head h5 {
     margin: 0;
     font-size: 0.95rem;
     font-weight: 700;
+    flex: 1 1 auto;
 }
 
 .bm-section-head .meta {
@@ -222,6 +238,7 @@
     font-size: 0.82rem;
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
+    margin-left: auto;
 }
 
 .bm-section-body {

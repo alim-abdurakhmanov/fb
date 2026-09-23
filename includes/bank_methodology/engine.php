@@ -55,7 +55,7 @@ function bank_methodology_empty_state(): array
                 'other_short_liabilities' => null,
                 'debt_to_revenue' => null,
                 'industry' => 'default',
-                'reporting_period' => 'annual', // annual|q1|q2|q3|9m
+                'reporting_period' => 'annual', // annual|q1|q2|9m
                 'q1_seasonal_loss_explained' => false,
                 'q1_seasonal_comment' => '',
                 'profitability_explained_zero' => false,
@@ -67,6 +67,7 @@ function bank_methodology_empty_state(): array
         'judgment' => [
             'comment' => '',
             'upgrade_downgrade_reason' => '',
+            'conclusion' => '', // Прил. 3: «Заключение»
             'established_rating' => '', // пусто = расчётный; иначе буква из шкалы
             'force_not_good' => false, // обстоятельства 590-П / п. 6.6 методики
         ],
@@ -251,6 +252,10 @@ function bank_methodology_normalize_state(array $state): array
                 $out['finance']['inputs'][$k] = $state['finance']['inputs'][$k];
             }
         }
+    }
+    // q3 был дублем «9 месяцев» — нормализуем в 9m
+    if (($out['finance']['inputs']['reporting_period'] ?? '') === 'q3') {
+        $out['finance']['inputs']['reporting_period'] = '9m';
     }
     if (!empty($state['finance']['score_overrides']) && is_array($state['finance']['score_overrides'])) {
         $out['finance']['score_overrides'] = $state['finance']['score_overrides'];
