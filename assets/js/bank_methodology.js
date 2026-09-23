@@ -257,9 +257,15 @@
             const ratingText = incomplete ? '—' : (r.rating || '—');
             const posText = r.position_label || '';
             const calcRating = r.calculated_rating || '';
+            const establishedApplied = !!r.established_applied;
+            const ratingLabel = establishedApplied ? 'Установленный' : 'Рейтинг';
             let ratingSub = esc(posText) + (r.hard_stop ? ' · стоп' : '');
-            if (!incomplete && calcRating && String(calcRating) !== String(ratingText)) {
-                ratingSub += ' · расчётный ' + esc(calcRating);
+            if (!incomplete && calcRating) {
+                if (establishedApplied && String(calcRating) === String(ratingText)) {
+                    ratingSub += ' · как расчётный';
+                } else if (String(calcRating) !== String(ratingText)) {
+                    ratingSub += ' · расчётный ' + esc(calcRating);
+                }
             }
             const versionLabel = assessment && assessment.version != null && assessment.version !== ''
                 ? ('версия ' + assessment.version + ' · ')
@@ -279,7 +285,7 @@
                     <div class="meta">${versionLabel}<span class="bm-status-chip ${esc(status)}">${esc(statusLabel)}</span></div>
                 </div>
                 <div class="bm-kpi bm-kpi-rating ${posClass}">
-                    <div class="label">Рейтинг</div>
+                    <div class="label">${esc(ratingLabel)}</div>
                     <div class="value">${esc(ratingText)}</div>
                     <div class="meta">${ratingSub}</div>
                 </div>`;
