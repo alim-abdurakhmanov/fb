@@ -339,6 +339,18 @@
                     <div class="value">${esc(ratingText)}</div>
                     <div class="meta">${ratingSub}</div>
                 </div>`;
+            updateStickyOffsets();
+        }
+
+        function updateStickyOffsets() {
+            const wrap = root.querySelector('.bm-wrap');
+            const summary = root.querySelector('[data-bm-summary]');
+            if (!wrap) return;
+            let offsetPx = 80;
+            if (summary && summary.offsetHeight) {
+                offsetPx = summary.offsetHeight + 8;
+            }
+            wrap.style.setProperty('--bm-summary-offset', offsetPx + 'px');
         }
 
         function renderBanners() {

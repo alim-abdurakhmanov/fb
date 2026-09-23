@@ -191,7 +191,8 @@
     margin-bottom: 0.85rem;
     border: 1px solid var(--bm-line);
     border-radius: 12px;
-    overflow: hidden;
+    /* visible: иначе position:sticky у заголовка не работает */
+    overflow: visible;
     background: #fff;
 }
 
@@ -200,14 +201,29 @@
     align-items: center;
     gap: 0.55rem;
     padding: 0.7rem 1rem;
-    background: linear-gradient(180deg, #fcfdff 0%, #f5f8fc 100%);
+    background:
+        linear-gradient(180deg, rgba(252, 253, 255, 0.98) 0%, rgba(245, 248, 252, 0.98) 100%);
     border-bottom: 1px solid var(--bm-line);
+    border-radius: 12px 12px 0 0;
     cursor: pointer;
     user-select: none;
+    position: sticky;
+    /* Под navbar + sticky KPI (--bm-summary-offset задаётся из JS) */
+    top: calc(var(--top-navbar-height, 60px) + var(--bm-summary-offset, 5rem));
+    z-index: 25;
+    backdrop-filter: blur(10px);
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.7) inset;
 }
 
 .bm-section.is-collapsed .bm-section-head {
     border-bottom-color: transparent;
+    border-radius: 12px;
+}
+
+.bm-section-head.is-stuck {
+    box-shadow:
+        0 1px 0 rgba(255, 255, 255, 0.7) inset,
+        0 6px 16px rgba(27, 40, 56, 0.08);
 }
 
 .bm-section-chevron {
@@ -243,6 +259,8 @@
 
 .bm-section-body {
     padding: 0.85rem 1rem 1rem;
+    border-radius: 0 0 12px 12px;
+    background: #fff;
 }
 
 .bm-section.is-collapsed .bm-section-body {
