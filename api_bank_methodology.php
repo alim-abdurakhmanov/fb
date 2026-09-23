@@ -222,13 +222,46 @@ try {
             ]);
         }
         $empty = bank_methodology_empty_state();
+        $inn = preg_replace('/\D+/', '', (string) ($appRow['inn'] ?? '')) ?? '';
+        $checkoMeta = null;
+        $checkoApplied = null;
+        $message = 'Черновик сброшен';
+
+        if (strlen($inn) >= 10) {
+            $proposal = bank_methodology_checko_propose($inn);
+            if (!empty($proposal['ok'])) {
+                $merged = bank_methodology_checko_apply($empty, $proposal, false);
+                $empty = $merged['state'];
+                $checkoApplied = $merged['applied'];
+                $checkoMeta = $proposal['meta'] ?? [];
+                $on = $merged['applied']['stops_on'] ?? [];
+                $fin = $merged['applied']['finance'] ?? [];
+                $parts = ['черновик сброшен'];
+                if ($on !== []) {
+                    $parts[] = 'стопы: ' . implode(', ', $on);
+                }
+                if ($fin !== []) {
+                    $parts[] = 'финансы: ' . count($fin) . ' полей';
+                }
+                $message = 'Сброс + Checko: ' . implode('; ', $parts);
+            } else {
+                $message = 'Черновик сброшен. Checko: ' . (string) ($proposal['error'] ?? 'не удалось подтянуть');
+            }
+        } else {
+            $message = 'Черновик сброшен. Checko пропущен: нет ИНН';
+        }
+
         $saved = bank_methodology_save_draft($pdo, $applicationId, $userId, $empty);
         $evaluated = bank_methodology_evaluate($saved['state']);
         bank_methodology_json([
             'success' => true,
             'assessment' => $saved,
             'evaluated' => $evaluated,
-            'message' => 'Черновик сброшен',
+            'checko' => [
+                'meta' => $checkoMeta,
+                'applied' => $checkoApplied,
+            ],
+            'message' => $message,
         ]);
     }
 
