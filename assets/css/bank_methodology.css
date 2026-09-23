@@ -445,6 +445,28 @@
     min-width: 0;
 }
 
+.bm-stop-head .title {
+    font-size: 0.88rem;
+    font-weight: 600;
+    line-height: 1.35;
+    color: var(--bm-ink);
+}
+
+.bm-source-pill {
+    display: inline-block;
+    margin-left: 0.4rem;
+    padding: 0.05rem 0.4rem;
+    border-radius: 999px;
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: #1f4f8a;
+    background: #e8f1fb;
+    border: 1px solid #cfe0f3;
+    vertical-align: middle;
+    white-space: nowrap;
+}
+
 .bm-stop-head input {
     margin-top: 0.2rem;
     width: auto;
