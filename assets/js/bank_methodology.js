@@ -607,14 +607,14 @@
                     const cond = !sf.mandatory;
                     const short = sf.short_label || sf.label;
                     const moreOpen = !!stopMoreOpen[sf.code];
-                    const fromChecko = on && row.source === 'checko';
+                    const fromAuto = on && row.source === 'checko';
                     const id = 'bm-stop-' + String(sf.code).replace(/[^a-zA-Z0-9_-]/g, '_');
                     return `
-                    <div class="bm-stop-item ${on ? 'is-on' : ''} ${cond ? 'is-conditional' : ''} ${moreOpen ? 'is-more-open' : ''}${fromChecko ? ' is-checko' : ''}" data-bm-stop-row="${esc(sf.code)}" data-bm-stop-source="${esc(row.source || 'manual')}">
+                    <div class="bm-stop-item ${on ? 'is-on' : ''} ${cond ? 'is-conditional' : ''} ${moreOpen ? 'is-more-open' : ''}${fromAuto ? ' is-auto' : ''}" data-bm-stop-row="${esc(sf.code)}" data-bm-stop-source="${esc(row.source || 'manual')}">
                         <div class="bm-stop-main">
                             <label class="bm-stop-head" for="${esc(id)}">
                                 <input id="${esc(id)}" type="checkbox" data-bm-stop="${esc(sf.code)}" ${on ? 'checked' : ''}>
-                                <span class="title">${esc(short)}${fromChecko ? '<span class="bm-source-pill" title="Проставлено из Checko">Checko</span>' : ''}</span>
+                                <span class="title">${esc(short)}${fromAuto ? '<span class="bm-source-pill" title="Проставлено автоматически">Авто</span>' : ''}</span>
                             </label>
                             <button type="button" class="bm-stop-info${moreOpen ? ' is-open' : ''}" data-bm-stop-more="${esc(sf.code)}" title="Полная формулировка" aria-expanded="${moreOpen ? 'true' : 'false'}">i</button>
                         </div>
@@ -798,10 +798,12 @@
                 return `<li>v${esc(h.version)} · ${esc(h.status)} · ${esc(h.rating || '—')} · ${esc(h.total_score != null ? h.total_score : '—')}</li>`;
             }).join('');
 
+            const hasSavedDraft = !!(assessment && assessment.status === 'draft' && assessment.id);
             const actionsHtml = locked
                 ? `<button type="button" class="btn btn-primary btn-sm" data-bm-action="newdraft" title="Создать редактируемую версию на базе зафиксированной"><i class="bi bi-plus-lg me-1"></i>Новый черновик</button>`
                 : `<button type="button" class="btn btn-outline-secondary btn-sm" data-bm-action="checko" title="Стоп-факторы 1.1, 1.3, 1.5, 3, 4, C1 и пустые финансы из Checko"><i class="bi bi-cloud-download me-1"></i>Из Checko</button>
                         <button type="button" class="btn btn-outline-primary btn-sm" data-bm-action="save"><i class="bi bi-save me-1"></i>Сохранить черновик</button>
+                        ${hasSavedDraft ? `<button type="button" class="btn btn-outline-danger btn-sm" data-bm-action="reset" title="Очистить сохранённый черновик до пустого состояния"><i class="bi bi-arrow-counterclockwise me-1"></i>Сбросить черновик</button>` : ''}
                         <button type="button" class="btn btn-primary btn-sm" data-bm-action="finalize"><i class="bi bi-check2-circle me-1"></i>Зафиксировать</button>`;
 
             const rMeta = (evaluated && evaluated.result) || {};
@@ -976,7 +978,7 @@
                     if (item) {
                         item.classList.toggle('is-on', !!el.checked);
                         item.setAttribute('data-bm-stop-source', 'manual');
-                        item.classList.remove('is-checko');
+                        item.classList.remove('is-auto');
                         const pill = item.querySelector('.bm-source-pill');
                         if (pill) pill.remove();
                         const ta = item.querySelector('textarea[data-bm-stop-comment]');
@@ -1116,6 +1118,30 @@
                         history = await reloadHistory();
                         renderAll();
                         notify(data.message || 'Данные Checko подтянуты', 'success');
+                        return;
+                    }
+                    if (name === 'reset') {
+                        if (isLocked()) {
+                            notify('Зафиксированную оценку нельзя сбросить. Создайте новый черновик.', 'error');
+                            return;
+                        }
+                        if (!(assessment && assessment.status === 'draft' && assessment.id)) {
+                            notify('Нет сохранённого черновика для сброса.', 'info');
+                            return;
+                        }
+                        if (!window.confirm('Сбросить сохранённый черновик? Все стоп-факторы, финансы и профсуждение будут очищены.')) {
+                            return;
+                        }
+                        clearTimeout(autosaveTimer);
+                        const data = await api('reset_draft', {});
+                        if (!data.success) throw new Error(data.error || 'Ошибка сброса');
+                        assessment = data.assessment;
+                        evaluated = data.evaluated;
+                        state = data.evaluated.state;
+                        dirty = false;
+                        history = await reloadHistory();
+                        renderAll();
+                        notify(data.message || 'Черновик сброшен', 'success');
                         return;
                     }
                     if (name === 'newdraft') {
