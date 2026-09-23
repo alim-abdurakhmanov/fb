@@ -378,7 +378,6 @@
                         <div class="name">${esc(m.label)}</div>
                         <div class="hint">${esc(m.hint || '')}${m.manual_only ? ' · только вручную' : ''}</div>
                         <div class="mt-2">
-                            <label>Градация</label>
                             <select data-bm-biz="${esc(id)}">
                                 <option value="">— выберите —</option>
                                 ${opts}
@@ -451,7 +450,7 @@
                                 <option value="">— как расчётный —</option>
                                 ${ratingOpts}
                             </select>
-                            <div class="hint mt-1">По методике: расчётный рейтинг можно скорректировать с обоснованием.</div>
+                            <div class="hint mt-1">Расчётный рейтинг можно скорректировать с обоснованием.</div>
                         </div>
                         <div class="mb-3">
                             <label class="form-label small text-muted fw-bold">Основания повышения / понижения рейтинга</label>
