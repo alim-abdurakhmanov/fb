@@ -31,6 +31,8 @@ if (!$productAppId || empty($title)) {
 try {
     $pdo = getPDO();
     $userId = $_SESSION['user_id'];
+    require_once __DIR__ . '/includes/bank_document_requests.php';
+    finbank_product_docs_ensure_bank_columns($pdo);
     
     // Проверяем существование продукта
     $stmt = $pdo->prepare("SELECT id FROM application_products WHERE id = ?");
@@ -40,10 +42,11 @@ try {
         exit;
     }
     
-    // Создаем запрос документа
+    // Создаем запрос документа (от менеджера клиенту/партнёру)
     $stmt = $pdo->prepare("
-        INSERT INTO application_product_documents (application_product_id, title, description, created_by)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO application_product_documents
+        (application_product_id, title, description, created_by, request_source, bank_case_id)
+        VALUES (?, ?, ?, ?, 'manager', NULL)
     ");
     $stmt->execute([$productAppId, $title, $description, $userId]);
     

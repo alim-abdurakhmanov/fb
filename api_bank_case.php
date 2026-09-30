@@ -8,6 +8,7 @@ require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/includes/bank_portal.php';
 require_once __DIR__ . '/includes/notification_events.php';
 require_once __DIR__ . '/includes/bg_documents.php';
+require_once __DIR__ . '/includes/bank_document_requests.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
@@ -172,6 +173,12 @@ try {
                 $generatedDocs = [];
             }
         }
+        $bankDocRequests = [];
+        try {
+            $bankDocRequests = finbank_bank_document_requests_for_case($pdo, $caseId);
+        } catch (Throwable) {
+            $bankDocRequests = [];
+        }
         $productStatus = (string) ($applicationProduct['status'] ?? '');
         $caseStatus = (string) ($caseRow['status'] ?? '');
         $productFailed = finbank_product_status_is_failed($productStatus);
@@ -186,6 +193,7 @@ try {
             'application_product' => $applicationProduct,
             'package' => $pkg,
             'generated_docs' => $generatedDocs,
+            'bank_doc_requests' => $bankDocRequests,
             'messages' => $messages,
             'status_log' => $statusLog,
             'status_label_bank' => finbank_bank_display_status_label($caseStatus, $productStatus),

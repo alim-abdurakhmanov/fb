@@ -262,9 +262,12 @@ if (finbuild_is_manager($userRole)) {
 $totalUnreadMessages = $stmtUnreadTotal->fetch()['total_unread'] ?? 0;
 }
 // --- НАЧАЛО ВСТАВКИ: Логика документов ---
+require_once __DIR__ . '/includes/bank_document_requests.php';
+finbank_product_docs_ensure_bank_columns($pdo);
+
 // Получаем документы продукта
 $stmt = $pdo->prepare("
-    SELECT d.*, u.first_name, u.last_name, u.role as creator_role
+    SELECT d.*, u.first_name, u.last_name, u.role as creator_role, u.company_name AS creator_company
     FROM application_product_documents d
     LEFT JOIN users u ON d.created_by = u.id
     WHERE d.application_product_id = ?
@@ -272,6 +275,14 @@ $stmt = $pdo->prepare("
 ");
 $stmt->execute([$productAppId]);
 $documents = $stmt->fetchAll();
+
+// Клиент/партнёр не видит запросы банка (они адресованы менеджеру)
+if (!finbuild_is_manager($userRole)) {
+    $documents = array_values(array_filter(
+        $documents,
+        static fn (array $d): bool => ($d['request_source'] ?? 'manager') !== 'bank'
+    ));
+}
 
 // Получаем файлы для документов
 $documentFiles = [];
@@ -287,8 +298,8 @@ foreach ($documents as $doc) {
 // Считаем бейдж для вкладки
 $documentsCount = 0;
 if (finbuild_is_manager($userRole)) {
-    // Менеджер: считаем заполненные
-    foreach ($documents as $d) { if (!empty($documentFiles[$d['id']])) $documentsCount++; }
+    // Менеджер: ожидающие загрузки (в т.ч. от банка)
+    foreach ($documents as $d) { if (empty($documentFiles[$d['id']])) $documentsCount++; }
 } else {
     // Клиент: считаем пустые
     foreach ($documents as $d) { if (empty($documentFiles[$d['id']])) $documentsCount++; }
@@ -1132,7 +1143,11 @@ function getProductTypeText($productType) {
     <div class="d-flex justify-content-between align-items-center mb-4">
         <div>
             <h5 class="mb-1">Пакет документов</h5>
-            <p class="text-muted small mb-0">Загрузите требуемые файлы в соответствующие ячейки</p>
+            <p class="text-muted small mb-0">
+                <?= finbuild_is_manager($userRole)
+                    ? 'Запросы менеджера клиенту и запросы банка — загрузите файлы в соответствующие ячейки'
+                    : 'Загрузите требуемые файлы в соответствующие ячейки' ?>
+            </p>
         </div>
         <?php if (finbuild_is_manager($userRole)): ?>
             <button class="btn btn-primary shadow-sm mobile-nowrap-btn" data-bs-toggle="modal" data-bs-target="#createDocumentModal">
@@ -1147,17 +1162,29 @@ function getProductTypeText($productType) {
                 <i class="bi bi-folder-plus text-muted opacity-50 display-1"></i>
             </div>
             <h5 class="text-muted fw-normal">Список документов пока пуст</h5>
-            <p class="text-muted small">Менеджер еще не сформировал список необходимых документов.</p>
+            <p class="text-muted small">
+                <?= finbuild_is_manager($userRole)
+                    ? 'Добавьте запрос клиенту или дождитесь запроса от банка.'
+                    : 'Менеджер еще не сформировал список необходимых документов.' ?>
+            </p>
         </div>
     <?php else: ?>
         <div class="row g-4">
             <?php foreach ($documents as $doc): 
                 $hasFiles = !empty($documentFiles[$doc['id']]);
+                $isBankRequest = ($doc['request_source'] ?? 'manager') === 'bank';
                 // Стили для разных состояний
                 $cardClass = $hasFiles ? 'border-success border-opacity-25 bg-white' : 'border-dashed bg-light';
+                if ($isBankRequest && !$hasFiles) {
+                    $cardClass = 'border-primary border-opacity-25 bg-white';
+                }
                 $iconClass = $hasFiles ? 'bi-check-circle-fill text-success' : 'bi-circle text-muted';
                 $statusText = $hasFiles ? 'Загружено' : 'Ожидает загрузки';
                 $statusBadge = $hasFiles ? 'bg-success-subtle text-success' : 'bg-secondary-subtle text-secondary';
+                $bankLabel = trim((string) ($doc['creator_company'] ?? ''));
+                if ($bankLabel === '') {
+                    $bankLabel = 'Банк';
+                }
             ?>
                 <div class="col-xl-6 col-12">
                     <div class="card h-100 shadow-sm document-slot <?php echo $cardClass; ?>">
@@ -1169,11 +1196,16 @@ function getProductTypeText($productType) {
                                     <i class="bi <?php echo $iconClass; ?> fs-4 me-3"></i>
                                     <div>
                                         <h6 class="fw-bold mb-0 text-dark"><?php echo htmlspecialchars($doc['title']); ?></h6>
-                                        <div class="d-flex align-items-center mt-1">
+                                        <div class="d-flex align-items-center flex-wrap gap-1 mt-1">
+                                            <?php if ($isBankRequest): ?>
+                                            <span class="badge rounded-pill bg-primary-subtle text-primary border border-opacity-10" style="font-weight: 500;">
+                                                Запрос банка<?= $bankLabel !== 'Банк' ? ': ' . htmlspecialchars($bankLabel) : '' ?>
+                                            </span>
+                                            <?php endif; ?>
                                             <span class="badge rounded-pill <?php echo $statusBadge; ?> border border-opacity-10" style="font-weight: 500;">
                                                 <?php echo $statusText; ?>
                                             </span>
-                                            <small class="text-muted ms-2" style="font-size: 0.75rem;">
+                                            <small class="text-muted ms-1" style="font-size: 0.75rem;">
                                                 <?php echo date('d.m.Y', strtotime($doc['created_at'])); ?>
                                             </small>
                                         </div>
@@ -1191,12 +1223,12 @@ function getProductTypeText($productType) {
                                 <?php endif; ?>
                             </div>
 
-                        <!-- Описание от менеджера -->
+                        <!-- Описание -->
 <?php if ($doc['description']): ?>
     <div class="mb-2">
         <div class="p-2 rounded bg-light border border-opacity-10">
             <small class="text-secondary d-block fw-bold mb-1">
-                <i class="bi bi-info-circle me-1"></i>Описание:
+                <i class="bi bi-info-circle me-1"></i><?= $isBankRequest ? 'Комментарий банка:' : 'Описание:' ?>
             </small>
             <p class="small mb-0 text-dark"><?php echo nl2br(htmlspecialchars($doc['description'])); ?></p>
         </div>
