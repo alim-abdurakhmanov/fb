@@ -1,0 +1,38 @@
+# Плейсхолдеры шаблона templates/bg/common/decision.docx (Решение)
+
+## Шапка
+${decision_number} — номер решения
+${decision_day}, ${decision_month}, ${decision_year} — дата решения
+${poa_day}, ${poa_month}, ${poa_year}, ${poa_number} — доверенность подписанта
+
+## Таблица
+${product} — продукт (по умолчанию «Банковская гарантия экспресс»)
+${guarantee_type} — тип/цель гарантии ← applications.guarantee_type
+${purchase_number} — идентификатор тендера ← applications.purchase_number
+${principal_name} — принципал ← applications.company_name / principal_company_name
+${principal_inn} — ИНН принципала ← applications.inn / principal_inn
+${principal_kpp} — КПП принципала (в заявке пока нет → пусто)
+${principal_ogrn} — ОГРН принципала (в заявке пока нет → пусто)
+${beneficiary_name} — бенефициар ← applications.customer_name
+${beneficiary_inn} — ИНН бенефициара ← applications.customer_inn
+${beneficiary_kpp} — КПП бенефициара (нет → пусто)
+${beneficiary_ogrn} — ОГРН бенефициара (нет → пусто)
+${amount} — сумма гарантии ← applications.amount
+${term_bg} — дата окончания ← applications.term_bg
+${commission_base} — базовая комиссия (нет в заявке → пусто)
+${commission_extra} — доп. выгода агентского договора (нет → пусто)
+${commission_reissue} — комиссия за изменения/перевыпуск (нет → пусто)
+${commission_total} — итоговая комиссия (нет → пусто)
+${agent_name} — наименование агента (нет → пусто)
+${agent_fee} — сумма агентского вознаграждения (нет → пусто)
+${established_rating} — установленный рейтинг ← методика (judgment.established_rating)
+${financial_position} — оценка финположения ← методика (Хорошее/Среднее/Плохое)
+${stop_factors} — наличие стоп-факторов ← методика (да/нет или перечень)
+${reserve_portfolio} — портфель резерва (нет → пусто)
+${reserve_percent} — процент резерва (нет → пусто)
+${specialist_name} — специалист ОБГ (нет → пусто)
+
+## Замечание по макету
+В строке «Источник заявки» отдельной ячейки под значение источника нет
+(подпись объединена на две строки). В значениях только: агент и сумма вознаграждения.
+При необходимости источник можно добавить в макет отдельной ячейкой (${application_source}).

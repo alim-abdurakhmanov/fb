@@ -1,0 +1,39 @@
+# Плейсхолдеры templates/bg/variant/agreement.docx
+# (единый вариант договора пока для всех видов БГ / 44 и 223)
+
+${agreement_number} — номер договора
+${agreement_day}, ${agreement_month}, ${agreement_year} — дата договора
+
+${guarantor_signatory} — ФИО/должность представителя Гаранта
+${guarantor_basis} — основание полномочий Гаранта (доверенность)
+
+${principal_name} — полное наименование Принципала
+${principal_signatory} — ФИО/должность представителя Принципала (преамбула)
+${principal_basis} — основание полномочий Принципала
+${principal_signatory_title} — должность в блоке подписи
+${principal_signatory_short} — инициалы и фамилия в блоке подписи
+
+${beneficiary_name} — бенефициар (сокр. наименование)
+${beneficiary_inn} — ИНН бенефициара
+
+${contract_subject} — предмет/условия контракта
+${purchase_number} — идентификатор закупки
+
+${commission_total} — вознаграждение цифрами
+${commission_total_words} — вознаграждение прописью
+
+${amount} — сумма гарантии цифрами
+${amount_words} — сумма прописью
+${amount_kopecks} — копейки
+
+${principal_email} — email Принципала
+${guarantee_start_date} — дата вступления гарантии в силу
+${term_bg} — дата окончания гарантии
+
+${principal_legal_address}
+${principal_actual_address}
+${principal_inn}, ${principal_kpp}, ${principal_ogrn}
+${principal_account}, ${principal_bank_name}, ${principal_bik}
+
+Подсказки «(указывается …)» убраны и заменены плейсхолдерами.
+Шрифты/начертания runs не менялись (Times New Roman 12pt, bold/italic как в оригинале).
