@@ -2,6 +2,8 @@
 -- created_by = 1, assigned_to = 1, added_by = 1.
 -- Идемпотентно: повторный запуск не создаёт дубликат (маркер purchase_number / comment).
 -- Требуется пользователь users.id = 1.
+-- Документы пакета для ЛК банка создаются автоматически при открытии заявки в ЛК
+-- (includes/seed_kamcom_test_docs.php), отдельно ничего запускать не нужно.
 
 SET @seed_marker := 'SEED-KAMCOM-TEST-APP-001';
 SET @seed_user_id := 1;

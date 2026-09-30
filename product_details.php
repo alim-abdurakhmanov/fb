@@ -1143,11 +1143,7 @@ function getProductTypeText($productType) {
     <div class="d-flex justify-content-between align-items-center mb-4">
         <div>
             <h5 class="mb-1">Пакет документов</h5>
-            <p class="text-muted small mb-0">
-                <?= finbuild_is_manager($userRole)
-                    ? 'Запросы менеджера клиенту и запросы банка — загрузите файлы в соответствующие ячейки'
-                    : 'Загрузите требуемые файлы в соответствующие ячейки' ?>
-            </p>
+            <p class="text-muted small mb-0">Загрузите требуемые файлы в соответствующие ячейки</p>
         </div>
         <?php if (finbuild_is_manager($userRole)): ?>
             <button class="btn btn-primary shadow-sm mobile-nowrap-btn" data-bs-toggle="modal" data-bs-target="#createDocumentModal">
