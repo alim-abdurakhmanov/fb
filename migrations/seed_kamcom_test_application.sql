@@ -2,6 +2,9 @@
 -- created_by = 1, assigned_to = 1, added_by = 1.
 -- Идемпотентно: повторный запуск не создаёт дубликат (маркер purchase_number / comment).
 -- Требуется пользователь users.id = 1.
+--
+-- Документы заявки в пакет ЛК банка: после этого SQL выполните
+--   php migrations/seed_kamcom_test_application_docs.php
 
 SET @seed_marker := 'SEED-KAMCOM-TEST-APP-001';
 SET @seed_user_id := 1;
