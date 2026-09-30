@@ -114,7 +114,9 @@ $mgrBankCommentHtml = trim((string) ($caseRow['manager_comment'] ?? ''));
 $isKamcomBank = finbank_portal_is_kamcom($bankPortalCode);
 ?>
 <link rel="stylesheet" href="assets/css/application_tabs.css">
+<?php if (!$isKamcomBank): ?>
 <link rel="stylesheet" href="assets/css/company_analytics.css?v=<?= (int) (@filemtime(__DIR__ . '/assets/css/company_analytics.css') ?: time()) ?>">
+<?php endif; ?>
 <?php if ($isKamcomBank): ?>
 <link rel="stylesheet" href="assets/css/bank_methodology.css?v=<?= (int) (@filemtime(__DIR__ . '/assets/css/bank_methodology.css') ?: time()) ?>">
 <?php endif; ?>
@@ -132,11 +134,13 @@ $isKamcomBank = finbank_portal_is_kamcom($bankPortalCode);
             <i class="bi bi-folder2-open me-2"></i><span class="tab-label">Документы</span>
         </button>
     </li>
+    <?php if (!$isKamcomBank): ?>
     <li class="nav-item" role="presentation">
         <button class="nav-link" id="bank-analytics-tab" data-bs-toggle="tab" data-bs-target="#bankAppAnalytics" type="button" role="tab" aria-controls="bankAppAnalytics" aria-selected="false">
             <i class="bi bi-graph-up me-2"></i><span class="tab-label">Аналитика</span>
         </button>
     </li>
+    <?php endif; ?>
     <?php if ($isKamcomBank): ?>
     <li class="nav-item" role="presentation">
         <button class="nav-link" id="bank-methodology-tab" data-bs-toggle="tab" data-bs-target="#bankAppMethodology" type="button" role="tab" aria-controls="bankAppMethodology" aria-selected="false">
@@ -338,6 +342,7 @@ $isKamcomBank = finbank_portal_is_kamcom($bankPortalCode);
     </div>
 </div>
 
+<?php if (!$isKamcomBank): ?>
 <div class="tab-pane fade" id="bankAppAnalytics" role="tabpanel" aria-labelledby="bank-analytics-tab">
     <div class="row">
         <div class="col-12">
@@ -347,6 +352,7 @@ $isKamcomBank = finbank_portal_is_kamcom($bankPortalCode);
         </div>
     </div>
 </div>
+<?php endif; ?>
 
 <?php if ($isKamcomBank): ?>
 <div class="tab-pane fade" id="bankAppMethodology" role="tabpanel" aria-labelledby="bank-methodology-tab">
@@ -580,8 +586,10 @@ $isKamcomBank = finbank_portal_is_kamcom($bankPortalCode);
 }
 </style>
 
+<?php if (!$isKamcomBank): ?>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="assets/js/company_analytics.js?v=<?= (int) (@filemtime(__DIR__ . '/assets/js/company_analytics.js') ?: time()) ?>"></script>
+<?php endif; ?>
 <?php if ($isKamcomBank): ?>
 <script src="assets/js/bank_methodology.js?v=<?= (int) (@filemtime(__DIR__ . '/assets/js/bank_methodology.js') ?: time()) ?>"></script>
 <?php endif; ?>
@@ -1381,7 +1389,7 @@ $isKamcomBank = finbank_portal_is_kamcom($bankPortalCode);
             sf.addEventListener('change', refreshBankStatusFileChips);
         }
         load();
-        if (typeof initCompanyAnalytics === 'function') {
+        if (!isKamcomBank && typeof initCompanyAnalytics === 'function') {
             initCompanyAnalytics({
                 applicationId: <?= (int) $applicationId ?>,
                 readOnly: false,
