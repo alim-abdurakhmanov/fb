@@ -51,8 +51,8 @@ function finbuild_access_permission_defs(): array
         'methodology.view' => [
             'label' => 'Банковская методика',
             'group' => 'Заявки',
-            'hint' => 'Вкладка «Банковская методика» на карточке заявки. В ЛК банка вкладка доступна всегда.',
-            'applicable_roles' => ['director', 'manager', 'case_manager', 'analyst'],
+            'hint' => 'Вкладка «Банковская методика» на карточке заявки — только для руководителя. В ЛК банка — только у Камкомбанка.',
+            'applicable_roles' => ['director'],
         ],
         'structure.view' => [
             'label' => 'Структура — просмотр',
@@ -151,7 +151,6 @@ function finbuild_access_default_matrix(): array
         $matrix['applications.assign'][$r] = true;
         $matrix['chat.access'][$r] = true;
         $matrix['banks.work'][$r] = true;
-        $matrix['methodology.view'][$r] = true;
         $matrix['structure.view'][$r] = true;
         $matrix['structure.edit'][$r] = true;
         $matrix['roadmap.view'][$r] = true;
@@ -161,14 +160,15 @@ function finbuild_access_default_matrix(): array
         $matrix['privacy.see_owner_identity'][$r] = true;
         $matrix['privacy.staff_identity_visible_to_owner'][$r] = true;
     }
+    // Банковская методика у сотрудников — только руководитель (в ЛК — только Камкомбанк)
+    $matrix['methodology.view']['director'] = true;
     $matrix['stats.monthly']['director'] = true;
     $matrix['access_rights.manage']['director'] = true;
 
-    // Менеджер по заявкам: чат, работа с банками, методика и структура на просмотр; без дорожной карты и без идентичности владельца;
+    // Менеджер по заявкам: чат, работа с банками и структура на просмотр; без методики и дорожной карты;
     // ФИО в чате для владельца/банка по умолчанию скрыто
     $matrix['chat.access']['case_manager'] = true;
     $matrix['banks.work']['case_manager'] = true;
-    $matrix['methodology.view']['case_manager'] = true;
     $matrix['structure.view']['case_manager'] = true;
 
     $matrix['applications.view_all']['analyst'] = true;
@@ -308,7 +308,15 @@ function finbuild_access_merge_config(array $defaults, array $stored): array
     // Руководитель всегда может управлять правами и видеть все заявки
     $out['matrix']['access_rights.manage']['director'] = true;
     $out['matrix']['applications.view_all']['director'] = true;
-    $out['version'] = max(9, (int) ($out['version'] ?? 9));
+
+    // Банковская методика: только руководитель (ЛК банка Камком — отдельно от матрицы)
+    if (isset($out['matrix']['methodology.view'])) {
+        foreach (finbuild_access_role_keys() as $role) {
+            $out['matrix']['methodology.view'][$role] = ($role === 'director');
+        }
+    }
+
+    $out['version'] = max(10, (int) ($out['version'] ?? 10));
     return $out;
 }
 
@@ -388,7 +396,7 @@ function finbuild_can_work_with_banks(?array $user = null): bool
     return finbuild_can('banks.work', $user);
 }
 
-/** Вкладка «Банковская методика» на карточке заявки (сотрудники). ЛК банка — всегда. */
+/** Вкладка «Банковская методика» на карточке заявки (сотрудники). В ЛК банка — только Камкомбанк. */
 function finbuild_can_view_methodology(?array $user = null): bool
 {
     return finbuild_can('methodology.view', $user);

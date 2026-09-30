@@ -1,0 +1,23 @@
+# Плейсхолдеры шаблона templates/bg/common/offer.docx (Предложение)
+
+## Шапка
+${offer_number} — номер предложения
+${offer_day}, ${offer_month}, ${offer_year} — дата предложения
+
+## Таблица
+${product} — продукт
+${guarantee_type} — тип/цель гарантии ← applications.guarantee_type
+${purchase_number} — идентификатор тендера ← applications.purchase_number
+${principal_name} — принципал ← applications.company_name / principal_company_name
+${principal_inn} / ${principal_kpp} — ИНН/КПП принципала (КПП в заявке нет → пусто)
+${principal_ogrn} — ОГРН принципала (нет → пусто)
+${beneficiary_name} — бенефициар ← applications.customer_name
+${beneficiary_inn} / ${beneficiary_kpp} — ИНН/КПП бенефициара (КПП нет → пусто)
+${beneficiary_ogrn} — ОГРН бенефициара (нет → пусто)
+${amount} — сумма гарантии ← applications.amount
+${term_bg} — дата окончания ← applications.term_bg
+${commission_total} — комиссия за выдачу (в заявке нет → пусто)
+${agreement_number} — номер договора в назначении платежа (нет → пусто)
+
+## Без плейсхолдеров (фиксированный текст)
+Порядок и условия, форма гарантии, прочие условия, срок действия 14 дней, реквизиты банка.

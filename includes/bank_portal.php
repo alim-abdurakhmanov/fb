@@ -1,6 +1,6 @@
 <?php
 /**
- * ЛК банка (multi-tenant: noosfera, alfa, …). См. includes/bank_portals.php.
+ * ЛК банка (multi-tenant: kamcom, noosfera, alfa, …). См. includes/bank_portals.php.
  * Статусы кейса в БД — латиница; подписи для менеджера и банка — в label-функциях.
  */
 declare(strict_types=1);

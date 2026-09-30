@@ -4,10 +4,25 @@
  */
 declare(strict_types=1);
 
+/** Код портала Камкомбанка (методика и сгенерированные DOCX — только здесь). */
+const FINBANK_PORTAL_KAMCOM = 'kamcom';
+
 /** @return array<string, array{code: string, name: string, label: string, bank_names: list<string>}> */
 function finbank_portals_registry(): array
 {
     return [
+        FINBANK_PORTAL_KAMCOM => [
+            'code' => FINBANK_PORTAL_KAMCOM,
+            'name' => 'Камкомбанк',
+            'label' => 'Камкомбанк',
+            'bank_names' => [
+                'Камкомбанк',
+                'Камком',
+                'ООО «Камский коммерческий банк»',
+                'ООО "Камский коммерческий банк"',
+                'Камский коммерческий банк',
+            ],
+        ],
         'noosfera' => [
             'code' => 'noosfera',
             'name' => 'Ноосфера',
@@ -21,6 +36,17 @@ function finbank_portals_registry(): array
             'bank_names' => ['Альфа', 'Альфа-Банк', 'АО Альфа-Банк'],
         ],
     ];
+}
+
+function finbank_portal_is_kamcom(?string $code): bool
+{
+    return $code !== null && $code === FINBANK_PORTAL_KAMCOM;
+}
+
+/** Пользователь банка с ЛК Камкомбанка. */
+function finbank_user_is_kamcom(PDO $pdo, ?array $user): bool
+{
+    return finbank_portal_is_kamcom(finbank_user_bank_code($pdo, $user));
 }
 
 function finbank_portal_by_code(string $code): ?array
