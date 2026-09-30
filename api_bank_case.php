@@ -9,6 +9,7 @@ require_once __DIR__ . '/includes/bank_portal.php';
 require_once __DIR__ . '/includes/notification_events.php';
 require_once __DIR__ . '/includes/bg_documents.php';
 require_once __DIR__ . '/includes/bank_document_requests.php';
+require_once __DIR__ . '/includes/seed_kamcom_test_docs.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
@@ -149,6 +150,14 @@ try {
         $ap = $pdo->prepare('SELECT * FROM application_products WHERE id = ?');
         $ap->execute([$applicationProductId]);
         $applicationProduct = $ap->fetch(PDO::FETCH_ASSOC);
+        // Тестовая заявка Камком: документы пакета создаются сами при первом открытии
+        try {
+            if (is_array($application) && finbank_seed_is_kamcom_test_application($application)) {
+                finbank_seed_ensure_kamcom_test_docs($pdo, $applicationId, $caseId, $userId);
+            }
+        } catch (Throwable) {
+        }
+
         $pkg = finbank_build_package_payload($pdo, $caseId, $applicationId, $applicationProductId, false);
         $msg = $pdo->prepare(
             'SELECT m.*, u.first_name, u.last_name, u.role, u.is_submanager, u.company_name AS user_company_name

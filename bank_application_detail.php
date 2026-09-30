@@ -830,7 +830,6 @@ $isKamcomBank = finbank_portal_is_kamcom($bankPortalCode);
         let html = '<div class="bank-doc-section mb-3">';
         html += '<div class="bank-doc-section__head mb-2">';
         html += '<h6 class="bank-doc-section__title">Запросы менеджеру <span class="badge bg-primary">' + list.length + '</span></h6>';
-        html += '<p class="bank-doc-section__desc mb-0 mt-1">Менеджер видит эти запросы во вкладке «Документы» на странице продукта и загружает файлы туда</p>';
         html += '</div><div class="row g-3">';
         list.forEach(function (req) {
             const hasFiles = !!(req.has_files || (req.files && req.files.length));
