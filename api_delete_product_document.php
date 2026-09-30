@@ -14,7 +14,10 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 }
 
 $userRole = $_SESSION['role'] ?? 'client';
-if (!finbuild_is_manager($userRole)) {
+$userId = (int) ($_SESSION['user_id'] ?? 0);
+$isManager = finbuild_is_manager($userRole);
+$isBank = $userRole === 'bank';
+if (!$isManager && !$isBank) {
     echo json_encode(['success' => false, 'error' => 'Недостаточно прав']);
     exit;
 }
@@ -29,8 +32,32 @@ if (!$documentId && !$fileId) {
 
 try {
     $pdo = getPDO();
+    require_once __DIR__ . '/includes/bank_document_requests.php';
+    require_once __DIR__ . '/includes/bank_portal.php';
+    finbank_product_docs_ensure_bank_columns($pdo);
+
+    $assertBankCanManageDoc = static function (PDO $pdo, array $document, array $user) use ($isBank): bool {
+        if (!$isBank) {
+            return true;
+        }
+        if (($document['request_source'] ?? '') !== 'bank') {
+            return false;
+        }
+        $caseId = (int) ($document['bank_case_id'] ?? 0);
+        if ($caseId <= 0) {
+            return false;
+        }
+        $bankCode = finbank_user_bank_code($pdo, $user);
+        return $bankCode !== null && finbank_bank_submitted_case($pdo, $caseId, $bankCode) !== null;
+    };
+    $currentUser = getCurrentUser() ?: ['id' => $userId, 'role' => $userRole];
     
     if ($fileId) {
+        // Удаление конкретного файла — только менеджер
+        if (!$isManager) {
+            echo json_encode(['success' => false, 'error' => 'Недостаточно прав']);
+            exit;
+        }
         // Удаление конкретного файла
         $stmt = $pdo->prepare("SELECT * FROM application_product_document_files WHERE id = ?");
         $stmt->execute([$fileId]);
@@ -62,6 +89,11 @@ try {
             echo json_encode(['success' => false, 'error' => 'Документ не найден']);
             exit;
         }
+
+        if (!$assertBankCanManageDoc($pdo, $document, $currentUser)) {
+            echo json_encode(['success' => false, 'error' => 'Недостаточно прав']);
+            exit;
+        }
         
         // Получаем все файлы документа
         $stmt = $pdo->prepare("SELECT * FROM application_product_document_files WHERE document_id = ?");
@@ -81,6 +113,15 @@ try {
             @rmdir($uploadDir);
         }
         
+        // Убираем из пакета банковского кейса, если был
+        try {
+            $pdo->prepare(
+                "DELETE FROM application_product_bank_case_items
+                 WHERE item_type = 'product_document' AND ref_id = ?"
+            )->execute([$documentId]);
+        } catch (Throwable) {
+        }
+
         // Удаляем документ (файлы удалятся автоматически через CASCADE)
         $stmt = $pdo->prepare("DELETE FROM application_product_documents WHERE id = ?");
         $stmt->execute([$documentId]);

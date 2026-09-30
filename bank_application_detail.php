@@ -291,17 +291,51 @@ $isKamcomBank = finbank_portal_is_kamcom($bankPortalCode);
     <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-2 mb-4">
         <div>
             <h4 class="mb-1">Документы</h4>
-            <p class="text-muted small mb-0"><?= $isKamcomBank ? 'Пакет документов по заявке и сформированные банком файлы' : 'Пакет документов по заявке' ?></p>
+            <p class="text-muted small mb-0"><?= $isKamcomBank ? 'Пакет документов по заявке, запросы банку и сформированные файлы' : 'Пакет документов по заявке и запросы менеджеру' ?></p>
         </div>
-        <a class="btn btn-outline-primary d-none"
-           id="bankDownloadAllDocsBtn"
-           href="api_download_application_documents.php?bank_case_id=<?= (int) $caseId ?>"
-           title="Скачать все документы архивом">
-            <i class="bi bi-file-zip me-2"></i>Скачать все архивом
-        </a>
+        <div class="d-flex flex-wrap gap-2">
+            <button type="button" class="btn btn-primary" id="bankRequestDocOpenBtn" data-bs-toggle="modal" data-bs-target="#bankRequestDocModal">
+                <i class="bi bi-plus-lg me-2"></i>Запросить документ
+            </button>
+            <a class="btn btn-outline-primary d-none"
+               id="bankDownloadAllDocsBtn"
+               href="api_download_application_documents.php?bank_case_id=<?= (int) $caseId ?>"
+               title="Скачать все документы архивом">
+                <i class="bi bi-file-zip me-2"></i>Скачать все архивом
+            </a>
+        </div>
     </div>
+    <div id="bankDocRequests" class="mb-4"></div>
     <div id="bankGeneratedDocs"></div>
     <div id="bankDetailPackage"></div>
+</div>
+
+<div class="modal fade" id="bankRequestDocModal" tabindex="-1" aria-labelledby="bankRequestDocModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="bankRequestDocModalLabel">Запрос документа менеджеру</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+            </div>
+            <div class="modal-body">
+                <form id="bankRequestDocForm">
+                    <input type="hidden" name="bank_case_id" value="<?= (int) $caseId ?>">
+                    <div class="mb-3">
+                        <label class="form-label" for="bankRequestDocTitle">Название</label>
+                        <input type="text" class="form-control" id="bankRequestDocTitle" name="title" required maxlength="255" placeholder="Например: Выписка по расчётному счёту">
+                    </div>
+                    <div class="mb-0">
+                        <label class="form-label" for="bankRequestDocDescription">Описание</label>
+                        <textarea class="form-control" id="bankRequestDocDescription" name="description" rows="3" placeholder="Уточнения для менеджера (необязательно)"></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Отмена</button>
+                <button type="button" class="btn btn-primary" id="bankRequestDocSubmitBtn">Отправить запрос</button>
+            </div>
+        </div>
+    </div>
 </div>
 
 <div class="tab-pane fade" id="bankAppAnalytics" role="tabpanel" aria-labelledby="bank-analytics-tab">
@@ -785,6 +819,82 @@ $isKamcomBank = finbank_portal_is_kamcom($bankPortalCode);
         return html;
     }
 
+    function renderBankDocRequests(requests) {
+        const el = document.getElementById('bankDocRequests');
+        if (!el) return;
+        const list = Array.isArray(requests) ? requests : [];
+        if (!list.length) {
+            el.innerHTML = '';
+            return;
+        }
+        let html = '<div class="bank-doc-section mb-3">';
+        html += '<div class="bank-doc-section__head mb-2">';
+        html += '<h6 class="bank-doc-section__title">Запросы менеджеру <span class="badge bg-primary">' + list.length + '</span></h6>';
+        html += '<p class="bank-doc-section__desc mb-0 mt-1">Менеджер видит эти запросы во вкладке «Документы» на странице продукта и загружает файлы туда</p>';
+        html += '</div><div class="row g-3">';
+        list.forEach(function (req) {
+            const hasFiles = !!(req.has_files || (req.files && req.files.length));
+            const files = req.files && req.files.length ? req.files : [];
+            html += '<div class="col-md-6"><div class="bank-doc-card" style="' + (hasFiles ? '' : 'border-style:dashed;') + '">';
+            html += '<div class="bank-doc-card__row align-items-start">';
+            html += '<div class="bank-doc-card__icon"><i class="bi ' + (hasFiles ? 'bi-check-circle-fill text-success' : 'bi-hourglass-split text-secondary') + '"></i></div>';
+            html += '<div class="bank-doc-card__info flex-grow-1">';
+            html += '<div class="bank-doc-card__name" title="' + esc(req.title || '') + '">' + esc(req.title || 'Документ') + '</div>';
+            html += '<div class="bank-doc-card__meta mt-1">';
+            html += '<span class="badge ' + (hasFiles ? 'bg-success-subtle text-success' : 'bg-secondary-subtle text-secondary') + '">'
+                + (hasFiles ? 'Загружено' : 'Ожидает загрузки') + '</span>';
+            if (req.created_at) {
+                html += ' <span class="text-muted small ms-1">' + esc(String(req.created_at).slice(0, 10)) + '</span>';
+            }
+            html += '</div>';
+            if (req.description) {
+                html += '<div class="small text-muted mt-2">' + esc(req.description).replace(/\n/g, '<br>') + '</div>';
+            }
+            if (files.length) {
+                html += '<div class="mt-2 d-flex flex-column gap-1">';
+                files.forEach(function (f) {
+                    const name = f.original_name || 'Файл';
+                    const href = bankFileHref(f, true);
+                    html += '<a class="small" href="' + esc(href) + '" target="_blank" rel="noopener"><i class="bi bi-download me-1"></i>' + esc(name) + '</a>';
+                });
+                html += '</div>';
+            }
+            html += '</div>';
+            if (!hasFiles) {
+                html += '<div class="bank-doc-card__actions">';
+                html += '<button type="button" class="btn btn-outline-danger btn-sm bank-doc-request-delete" data-document-id="' + esc(String(req.id || '')) + '" title="Удалить запрос"><i class="bi bi-trash"></i></button>';
+                html += '</div>';
+            }
+            html += '</div></div></div>';
+        });
+        html += '</div></div>';
+        el.innerHTML = html;
+        el.querySelectorAll('.bank-doc-request-delete').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                const id = parseInt(String(btn.getAttribute('data-document-id') || '0'), 10);
+                if (!id || !confirm('Удалить запрос документа?')) return;
+                const fd = new FormData();
+                fd.append('document_id', String(id));
+                btn.disabled = true;
+                fetch('api_delete_product_document.php', { method: 'POST', body: fd })
+                    .then(function (r) { return r.json(); })
+                    .then(function (data) {
+                        if (data.success) {
+                            toast('Запрос удалён', 'success');
+                            load();
+                        } else {
+                            toast(data.error || 'Ошибка', 'error');
+                            btn.disabled = false;
+                        }
+                    })
+                    .catch(function () {
+                        toast('Ошибка сети', 'error');
+                        btn.disabled = false;
+                    });
+            });
+        });
+    }
+
     function renderGeneratedDocs(docs) {
         const el = document.getElementById('bankGeneratedDocs');
         if (!el) return;
@@ -1068,11 +1178,46 @@ $isKamcomBank = finbank_portal_is_kamcom($bankPortalCode);
                 subEl.textContent = '—';
             }
         }
+        renderBankDocRequests(data.bank_doc_requests || []);
         renderGeneratedDocs(isKamcomBank ? (data.generated_docs || []) : []);
         renderPackage(data.package, isKamcomBank ? (data.generated_docs || []) : []);
         renderMessages(data.messages);
         renderLog(data.status_log || []);
         fillStatusSelect(data.allowed_statuses || []);
+    }
+
+    const bankRequestDocSubmitBtn = document.getElementById('bankRequestDocSubmitBtn');
+    if (bankRequestDocSubmitBtn) {
+        bankRequestDocSubmitBtn.addEventListener('click', function () {
+            const form = document.getElementById('bankRequestDocForm');
+            const titleInput = document.getElementById('bankRequestDocTitle');
+            if (!form || !titleInput || !(titleInput.value || '').trim()) {
+                toast('Укажите название документа', 'error');
+                return;
+            }
+            const btn = bankRequestDocSubmitBtn;
+            btn.disabled = true;
+            fetch('api_create_bank_document_request.php', { method: 'POST', body: new FormData(form) })
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    if (data.success) {
+                        toast(data.message || 'Запрос отправлен', 'success');
+                        titleInput.value = '';
+                        const desc = document.getElementById('bankRequestDocDescription');
+                        if (desc) desc.value = '';
+                        const modalEl = document.getElementById('bankRequestDocModal');
+                        if (modalEl && typeof bootstrap !== 'undefined' && bootstrap.Modal) {
+                            const inst = bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl);
+                            inst.hide();
+                        }
+                        load();
+                    } else {
+                        toast(data.error || 'Ошибка', 'error');
+                    }
+                })
+                .catch(function () { toast('Ошибка сети', 'error'); })
+                .finally(function () { btn.disabled = false; });
+        });
     }
 
     function refreshBankStatusFileChips() {

@@ -872,3 +872,97 @@ function notify_bank_case_status_changed(
         finbuild_send_mail($to, $subject, $html);
     }
 }
+
+/**
+ * Банк запросил документ — письмо ответственному менеджеру (вкладка «Документы» продукта).
+ */
+function notify_bank_document_request_created(
+    PDO $pdo,
+    int $caseId,
+    int $applicationProductId,
+    string $title
+): void {
+    $row = finbuild_bank_case_notification_row($pdo, $caseId);
+    if (!$row) {
+        return;
+    }
+    $assignedTo = isset($row['assigned_to']) ? (int) $row['assigned_to'] : 0;
+    $recipients = finbuild_bank_case_manager_recipients($pdo, $assignedTo, null);
+    if ($recipients === []) {
+        return;
+    }
+
+    $applicationId = (int) $row['application_id'];
+    $companyName = trim((string) ($row['company_name'] ?? ''));
+    $bankName = trim((string) ($row['bank_name'] ?? 'Банк'));
+    $base = finbuild_site_base_url();
+    $link = $base !== '' ? $base . '/product_details.php?id=' . $applicationProductId . '&tab=documents' : '';
+
+    $subject = 'Банк запросил документ по заявке №' . $applicationId;
+    if ($companyName !== '') {
+        $subject .= ' (' . $companyName . ')';
+    }
+
+    $html = '<p><strong>' . htmlspecialchars($bankName) . '</strong> запросил документ:</p>';
+    $html .= '<p><strong>' . htmlspecialchars($title) . '</strong></p>';
+    if ($link !== '') {
+        $html .= '<p><a href="' . htmlspecialchars($link) . '">Открыть вкладку «Документы»</a></p>';
+    }
+
+    foreach ($recipients as $to) {
+        finbuild_send_mail($to, $subject, $html);
+    }
+}
+
+/**
+ * Менеджер загрузил файл по запросу банка — уведомление пользователям ЛК банка.
+ */
+function notify_bank_document_request_fulfilled(PDO $pdo, int $documentId, int $uploaderUserId): void
+{
+    require_once __DIR__ . '/bank_document_requests.php';
+    finbank_product_docs_ensure_bank_columns($pdo);
+
+    $stmt = $pdo->prepare(
+        "SELECT d.title, d.bank_case_id, d.request_source, d.application_product_id,
+                a.id AS application_id, a.company_name, ap.bank_name, c.bank_code
+         FROM application_product_documents d
+         INNER JOIN application_products ap ON ap.id = d.application_product_id
+         INNER JOIN applications a ON a.id = ap.application_id
+         LEFT JOIN application_product_bank_cases c ON c.id = d.bank_case_id
+         WHERE d.id = ? LIMIT 1"
+    );
+    $stmt->execute([$documentId]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$row || ($row['request_source'] ?? '') !== 'bank') {
+        return;
+    }
+    $caseId = (int) ($row['bank_case_id'] ?? 0);
+    $bankCode = trim((string) ($row['bank_code'] ?? ''));
+    if ($caseId <= 0 || $bankCode === '') {
+        return;
+    }
+
+    $recipients = finbuild_bank_portal_notification_emails($pdo, $bankCode, $uploaderUserId);
+    if ($recipients === []) {
+        return;
+    }
+
+    $applicationId = (int) $row['application_id'];
+    $companyName = trim((string) ($row['company_name'] ?? ''));
+    $title = trim((string) ($row['title'] ?? 'Документ'));
+    $base = finbuild_site_base_url();
+    $link = $base !== '' ? $base . '/bank_application_detail.php?id=' . $caseId . '&tab=bankAppDocuments' : '';
+
+    $subject = 'Загружен документ по запросу банка (заявка №' . $applicationId . ')';
+    $html = '<p>Менеджер загрузил файл по запросу: <strong>' . htmlspecialchars($title) . '</strong>.</p>';
+    if ($companyName !== '') {
+        $html .= '<p>Заявка: <strong>' . htmlspecialchars($companyName) . '</strong> (№' . $applicationId . ').</p>';
+    }
+    if ($link !== '') {
+        $html .= '<p><a href="' . htmlspecialchars($link) . '">Открыть документы в ЛК банка</a></p>';
+    }
+
+    foreach ($recipients as $to) {
+        finbuild_send_mail($to, $subject, $html);
+    }
+}

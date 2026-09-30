@@ -25,10 +25,12 @@ try {
     $pdo = getPDO();
     $userId = $_SESSION['user_id'];
     $userRole = $_SESSION['role'] ?? 'client';
+    require_once __DIR__ . '/includes/bank_document_requests.php';
+    finbank_product_docs_ensure_bank_columns($pdo);
     
     // Получаем информацию о документе и проверяем доступ
     $stmt = $pdo->prepare("
-        SELECT d.*, ap.application_id, a.created_by, a.assigned_to
+        SELECT d.*, ap.application_id, ap.id AS application_product_id, a.created_by, a.assigned_to
         FROM application_product_documents d
         JOIN application_products ap ON d.application_product_id = ap.id
         JOIN applications a ON ap.application_id = a.id
@@ -41,11 +43,15 @@ try {
         echo json_encode(['success' => false, 'error' => 'Документ не найден']);
         exit;
     }
+
+    $isBankRequest = (($document['request_source'] ?? 'manager') === 'bank');
     
-    // Клиенты могут загружать только в свои заявки, менеджеры - в любые
-    if (!finbuild_is_manager($userRole) && $document['created_by'] != $userId) {
-        echo json_encode(['success' => false, 'error' => 'Доступ запрещен']);
-        exit;
+    // Клиенты могут загружать только в свои заявки (не запросы банка), менеджеры - в любые
+    if (!finbuild_is_manager($userRole)) {
+        if ($isBankRequest || (int) $document['created_by'] !== (int) $userId) {
+            echo json_encode(['success' => false, 'error' => 'Доступ запрещен']);
+            exit;
+        }
     }
     
     // Обновляем комментарий клиента (если есть)
@@ -119,7 +125,30 @@ try {
 
     if ($uploadedCount > 0) {
         require_once __DIR__ . '/includes/notification_events.php';
-        notify_product_document_uploaded($pdo, $documentId, $userId);
+        require_once __DIR__ . '/includes/bank_document_requests.php';
+        finbank_product_docs_ensure_bank_columns($pdo);
+
+        $src = (string) ($document['request_source'] ?? 'manager');
+        $bankCaseId = (int) ($document['bank_case_id'] ?? 0);
+        if ($src === 'bank' && $bankCaseId > 0) {
+            finbank_case_package_ensure_product_document($pdo, $bankCaseId, $documentId);
+            notify_bank_document_request_fulfilled($pdo, $documentId, $userId);
+        } else {
+            // Для обычных запросов менеджера — по возможности дополняем черновик пакета банка
+            try {
+                require_once __DIR__ . '/includes/bank_portal.php';
+                $caseStmt = $pdo->prepare(
+                    'SELECT id, status FROM application_product_bank_cases WHERE application_product_id = ? LIMIT 1'
+                );
+                $caseStmt->execute([(int) $document['application_product_id']]);
+                $caseRow = $caseStmt->fetch(PDO::FETCH_ASSOC);
+                if ($caseRow && (string) ($caseRow['status'] ?? '') === FINBANK_STATUS_DRAFT) {
+                    finbank_case_package_ensure_product_document($pdo, (int) $caseRow['id'], $documentId);
+                }
+            } catch (Throwable) {
+            }
+            notify_product_document_uploaded($pdo, $documentId, $userId);
+        }
     }
     
     echo json_encode($response);
