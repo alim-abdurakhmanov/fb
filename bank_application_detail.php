@@ -111,10 +111,13 @@ if ($termMonths > 0) {
     $termBgLine = $termBgLine === '—' ? '— (' . $termMonths . ' мес.)' : $termBgLine . ' (' . $termMonths . ' мес.)';
 }
 $mgrBankCommentHtml = trim((string) ($caseRow['manager_comment'] ?? ''));
+$isKamcomBank = finbank_portal_is_kamcom($bankPortalCode);
 ?>
 <link rel="stylesheet" href="assets/css/application_tabs.css">
 <link rel="stylesheet" href="assets/css/company_analytics.css?v=<?= (int) (@filemtime(__DIR__ . '/assets/css/company_analytics.css') ?: time()) ?>">
+<?php if ($isKamcomBank): ?>
 <link rel="stylesheet" href="assets/css/bank_methodology.css?v=<?= (int) (@filemtime(__DIR__ . '/assets/css/bank_methodology.css') ?: time()) ?>">
+<?php endif; ?>
 
 <div class="row">
     <div class="col-12">
@@ -134,11 +137,13 @@ $mgrBankCommentHtml = trim((string) ($caseRow['manager_comment'] ?? ''));
             <i class="bi bi-graph-up me-2"></i><span class="tab-label">Аналитика</span>
         </button>
     </li>
+    <?php if ($isKamcomBank): ?>
     <li class="nav-item" role="presentation">
         <button class="nav-link" id="bank-methodology-tab" data-bs-toggle="tab" data-bs-target="#bankAppMethodology" type="button" role="tab" aria-controls="bankAppMethodology" aria-selected="false">
             <i class="bi bi-clipboard2-check me-2"></i><span class="tab-label">Банковская методика</span>
         </button>
     </li>
+    <?php endif; ?>
     <li class="nav-item" role="presentation">
         <button class="nav-link" id="bank-structure-tab" data-bs-toggle="tab" data-bs-target="#bankAppStructure" type="button" role="tab" aria-controls="bankAppStructure" aria-selected="false">
             <i class="bi bi-diagram-3 me-2"></i><span class="tab-label">Структура</span>
@@ -286,7 +291,7 @@ $mgrBankCommentHtml = trim((string) ($caseRow['manager_comment'] ?? ''));
     <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-2 mb-4">
         <div>
             <h4 class="mb-1">Документы</h4>
-            <p class="text-muted small mb-0">Пакет документов по заявке и сформированные банком файлы</p>
+            <p class="text-muted small mb-0"><?= $isKamcomBank ? 'Пакет документов по заявке и сформированные банком файлы' : 'Пакет документов по заявке' ?></p>
         </div>
         <a class="btn btn-outline-primary d-none"
            id="bankDownloadAllDocsBtn"
@@ -309,9 +314,11 @@ $mgrBankCommentHtml = trim((string) ($caseRow['manager_comment'] ?? ''));
     </div>
 </div>
 
+<?php if ($isKamcomBank): ?>
 <div class="tab-pane fade" id="bankAppMethodology" role="tabpanel" aria-labelledby="bank-methodology-tab">
     <?php require __DIR__ . '/includes/partials/bank_methodology_tab.php'; ?>
 </div>
+<?php endif; ?>
 
 <div class="tab-pane fade" id="bankAppStructure" role="tabpanel" aria-labelledby="bank-structure-tab">
     <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-2 mb-4">
@@ -541,10 +548,13 @@ $mgrBankCommentHtml = trim((string) ($caseRow['manager_comment'] ?? ''));
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="assets/js/company_analytics.js?v=<?= (int) (@filemtime(__DIR__ . '/assets/js/company_analytics.js') ?: time()) ?>"></script>
+<?php if ($isKamcomBank): ?>
 <script src="assets/js/bank_methodology.js?v=<?= (int) (@filemtime(__DIR__ . '/assets/js/bank_methodology.js') ?: time()) ?>"></script>
+<?php endif; ?>
 <script>
 (function () {
     const caseId = <?= (int) $caseId ?>;
+    const isKamcomBank = <?= $isKamcomBank ? 'true' : 'false' ?>;
     const bankChatUserId = <?= (int) ($_SESSION['user_id'] ?? 0) ?>;
     const statusHistoryLabels = <?= json_encode([
         FINBANK_STATUS_DRAFT => finbank_case_status_label_history(FINBANK_STATUS_DRAFT),
@@ -778,6 +788,10 @@ $mgrBankCommentHtml = trim((string) ($caseRow['manager_comment'] ?? ''));
     function renderGeneratedDocs(docs) {
         const el = document.getElementById('bankGeneratedDocs');
         if (!el) return;
+        if (!isKamcomBank) {
+            el.innerHTML = '';
+            return;
+        }
         const list = Array.isArray(docs) ? docs : [];
         if (!list.length) {
             el.innerHTML = '';
@@ -1054,8 +1068,8 @@ $mgrBankCommentHtml = trim((string) ($caseRow['manager_comment'] ?? ''));
                 subEl.textContent = '—';
             }
         }
-        renderGeneratedDocs(data.generated_docs || []);
-        renderPackage(data.package, data.generated_docs || []);
+        renderGeneratedDocs(isKamcomBank ? (data.generated_docs || []) : []);
+        renderPackage(data.package, isKamcomBank ? (data.generated_docs || []) : []);
         renderMessages(data.messages);
         renderLog(data.status_log || []);
         fillStatusSelect(data.allowed_statuses || []);

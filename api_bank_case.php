@@ -165,10 +165,12 @@ try {
         $log->execute([$caseId]);
         $statusLog = finbank_bank_case_status_log_append_files($pdo, $log->fetchAll(PDO::FETCH_ASSOC));
         $generatedDocs = [];
-        try {
-            $generatedDocs = finbank_bg_docs_list_for_case($pdo, $caseId);
-        } catch (Throwable) {
-            $generatedDocs = [];
+        if (finbank_user_is_kamcom($pdo, $currentUser)) {
+            try {
+                $generatedDocs = finbank_bg_docs_list_for_case($pdo, $caseId);
+            } catch (Throwable) {
+                $generatedDocs = [];
+            }
         }
         $productStatus = (string) ($applicationProduct['status'] ?? '');
         $caseStatus = (string) ($caseRow['status'] ?? '');
@@ -420,7 +422,8 @@ try {
 
         $generatedDocs = null;
         $generateError = null;
-        if ($newStatus === FINBANK_STATUS_BG_ISSUED) {
+        $caseBankCode = trim((string) ($c['bank_code'] ?? ''));
+        if ($newStatus === FINBANK_STATUS_BG_ISSUED && finbank_bg_docs_enabled_for_bank_code($caseBankCode)) {
             try {
                 $applicationId = (int) ($c['application_id'] ?? 0);
                 if ($applicationId <= 0) {

@@ -1,7 +1,7 @@
 <?php
 /**
  * API: оценка по банковской методике.
- * ЛК банка — всегда; сотрудники — при праве methodology.view.
+ * ЛК банка — только Камкомбанк; сотрудники — руководитель (methodology.view).
  * Оценка хранится на заявку (application_id), без привязки к отправке в банк.
  */
 declare(strict_types=1);
@@ -41,7 +41,10 @@ function bank_methodology_assert_application_access(PDO $pdo, int $applicationId
 
     if ($role === 'bank') {
         $bankCode = finbank_user_bank_code($pdo, $user);
-        if ($bankCode === null || !finbank_bank_can_view_application($pdo, $applicationId, $bankCode)) {
+        if ($bankCode === null || !finbank_portal_is_kamcom($bankCode)) {
+            return null;
+        }
+        if (!finbank_bank_can_view_application($pdo, $applicationId, $bankCode)) {
             return null;
         }
         return ['application_id' => $applicationId];

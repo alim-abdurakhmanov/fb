@@ -249,8 +249,12 @@ function finbuild_upload_can_access(PDO $pdo, string $kind, int $id, array $user
             return finbuild_upload_can_access_bank_case($pdo, $caseId, $user);
 
         case 'bank_bg':
-            // Сгенерированные документы БГ — только ЛК банка
+            // Сгенерированные документы БГ — только ЛК Камкомбанка
             if ($role !== 'bank') {
+                return false;
+            }
+            require_once __DIR__ . '/bank_portal.php';
+            if (!finbank_user_is_kamcom($pdo, $user)) {
                 return false;
             }
             $stmt = $pdo->prepare('SELECT bank_case_id FROM application_product_bank_case_generated_docs WHERE id = ? LIMIT 1');

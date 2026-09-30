@@ -5,8 +5,15 @@
  */
 declare(strict_types=1);
 
+require_once __DIR__ . '/bank_portal.php';
 require_once __DIR__ . '/bank_methodology/store.php';
 require_once __DIR__ . '/upload_access.php';
+
+/** Сгенерированные DOCX и автозаполнение — только для портала Камкомбанка. */
+function finbank_bg_docs_enabled_for_bank_code(?string $bankCode): bool
+{
+    return finbank_portal_is_kamcom($bankCode);
+}
 
 function finbank_bg_docs_autoload(): void
 {
@@ -411,6 +418,13 @@ function finbank_bg_docs_generate_for_case(PDO $pdo, int $caseId, int $applicati
     finbank_bg_docs_ensure_table($pdo);
     finbank_bg_docs_autoload();
 
+    $caseStmt = $pdo->prepare('SELECT bank_code FROM application_product_bank_cases WHERE id = ? LIMIT 1');
+    $caseStmt->execute([$caseId]);
+    $caseBankCode = trim((string) ($caseStmt->fetchColumn() ?: ''));
+    if (!finbank_bg_docs_enabled_for_bank_code($caseBankCode)) {
+        return [];
+    }
+
     $appStmt = $pdo->prepare('SELECT * FROM applications WHERE id = ? LIMIT 1');
     $appStmt->execute([$applicationId]);
     $application = $appStmt->fetch(PDO::FETCH_ASSOC);
@@ -490,6 +504,12 @@ function finbank_bg_docs_generate_for_case(PDO $pdo, int $caseId, int $applicati
 function finbank_bg_docs_list_for_case(PDO $pdo, int $caseId): array
 {
     finbank_bg_docs_ensure_table($pdo);
+    $caseStmt = $pdo->prepare('SELECT bank_code FROM application_product_bank_cases WHERE id = ? LIMIT 1');
+    $caseStmt->execute([$caseId]);
+    $caseBankCode = trim((string) ($caseStmt->fetchColumn() ?: ''));
+    if (!finbank_bg_docs_enabled_for_bank_code($caseBankCode)) {
+        return [];
+    }
     $stmt = $pdo->prepare(
         'SELECT * FROM application_product_bank_case_generated_docs
          WHERE bank_case_id = ?
