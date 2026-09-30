@@ -286,7 +286,7 @@ $mgrBankCommentHtml = trim((string) ($caseRow['manager_comment'] ?? ''));
     <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-2 mb-4">
         <div>
             <h4 class="mb-1">Документы</h4>
-            <p class="text-muted small mb-0">Пакет документов по заявке</p>
+            <p class="text-muted small mb-0">Пакет документов по заявке и сформированные банком файлы</p>
         </div>
         <a class="btn btn-outline-primary d-none"
            id="bankDownloadAllDocsBtn"
@@ -295,6 +295,7 @@ $mgrBankCommentHtml = trim((string) ($caseRow['manager_comment'] ?? ''));
             <i class="bi bi-file-zip me-2"></i>Скачать все архивом
         </a>
     </div>
+    <div id="bankGeneratedDocs"></div>
     <div id="bankDetailPackage"></div>
 </div>
 
@@ -774,18 +775,45 @@ $mgrBankCommentHtml = trim((string) ($caseRow['manager_comment'] ?? ''));
         return html;
     }
 
-    function renderPackage(pkg) {
+    function renderGeneratedDocs(docs) {
+        const el = document.getElementById('bankGeneratedDocs');
+        if (!el) return;
+        const list = Array.isArray(docs) ? docs : [];
+        if (!list.length) {
+            el.innerHTML = '';
+            return;
+        }
+        const files = list.map(function (d) {
+            return {
+                id: d.id,
+                original_name: d.original_name || 'Документ.docx',
+                file_size: d.file_size,
+                file_type: d.file_type || 'word',
+                file_url: d.file_url,
+                file_url_download: d.file_url_download,
+                file_path: d.file_path
+            };
+        });
+        el.innerHTML = renderBankDocSection(
+            'Документы банка',
+            'Сформированы при статусе «БГ выдана» (только для ЛК банка)',
+            files
+        );
+    }
+
+    function renderPackage(pkg, generatedDocs) {
         const el = document.getElementById('bankDetailPackage');
         if (!el) return;
         const items = (pkg && pkg.items) ? pkg.items : [];
         const uploads = (pkg && pkg.uploads) ? pkg.uploads : [];
+        const gen = Array.isArray(generatedDocs) ? generatedDocs : [];
         let html = '';
 
         buildBankDocSections(items, uploads).forEach(function (sec) {
             html += renderBankDocSection(sec.title, sec.description, sec.files);
         });
 
-        if (!html) {
+        if (!html && !gen.length) {
             html = '<div class="bank-doc-empty text-center text-muted">'
                 + '<i class="bi bi-folder2-open"></i>'
                 + '<div class="fw-medium">Нет документов в пакете</div>'
@@ -796,7 +824,7 @@ $mgrBankCommentHtml = trim((string) ($caseRow['manager_comment'] ?? ''));
 
         const downloadBtn = document.getElementById('bankDownloadAllDocsBtn');
         if (downloadBtn) {
-            downloadBtn.classList.toggle('d-none', !items.length && !uploads.length);
+            downloadBtn.classList.toggle('d-none', !items.length && !uploads.length && !gen.length);
         }
     }
 
@@ -1026,7 +1054,8 @@ $mgrBankCommentHtml = trim((string) ($caseRow['manager_comment'] ?? ''));
                 subEl.textContent = '—';
             }
         }
-        renderPackage(data.package);
+        renderGeneratedDocs(data.generated_docs || []);
+        renderPackage(data.package, data.generated_docs || []);
         renderMessages(data.messages);
         renderLog(data.status_log || []);
         fillStatusSelect(data.allowed_statuses || []);
@@ -1094,6 +1123,11 @@ $mgrBankCommentHtml = trim((string) ($caseRow['manager_comment'] ?? ''));
             .then(function (data) {
                 if (data.success) {
                     toast('Статус обновлён', 'success');
+                    if (data.generate_warning) {
+                        toast(data.generate_warning, 'error');
+                    } else if (data.generated_docs && data.generated_docs.length) {
+                        toast('Сформированы документы банка: ' + data.generated_docs.length, 'success');
+                    }
                     document.getElementById('bankStatusComment').value = '';
                     if (sf) {
                         sf.value = '';

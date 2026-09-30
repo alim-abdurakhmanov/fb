@@ -13,6 +13,7 @@ function finbuild_upload_kinds(): array
         'bank_upload' => 'application_product_bank_case_uploads',
         'bank_msg' => 'application_product_bank_case_message_files',
         'bank_log' => 'application_product_bank_case_status_log_files',
+        'bank_bg' => 'application_product_bank_case_generated_docs',
         'chat' => 'application_product_chat_files',
         'app_chat' => 'application_chat_files',
         'avatar' => 'users',
@@ -159,6 +160,9 @@ function finbuild_upload_load(PDO $pdo, string $kind, int $id): ?array
         case 'bank_log':
             $stmt = $pdo->prepare('SELECT file_path, original_name FROM application_product_bank_case_status_log_files WHERE id = ? LIMIT 1');
             break;
+        case 'bank_bg':
+            $stmt = $pdo->prepare('SELECT file_path, original_name FROM application_product_bank_case_generated_docs WHERE id = ? LIMIT 1');
+            break;
         case 'chat':
             $stmt = $pdo->prepare('SELECT file_path, original_name FROM application_product_chat_files WHERE id = ? LIMIT 1');
             break;
@@ -240,6 +244,16 @@ function finbuild_upload_can_access(PDO $pdo, string $kind, int $id, array $user
                  WHERE f.id = ?
                  LIMIT 1'
             );
+            $stmt->execute([$id]);
+            $caseId = (int) $stmt->fetchColumn();
+            return finbuild_upload_can_access_bank_case($pdo, $caseId, $user);
+
+        case 'bank_bg':
+            // Сгенерированные документы БГ — только ЛК банка
+            if ($role !== 'bank') {
+                return false;
+            }
+            $stmt = $pdo->prepare('SELECT bank_case_id FROM application_product_bank_case_generated_docs WHERE id = ? LIMIT 1');
             $stmt->execute([$id]);
             $caseId = (int) $stmt->fetchColumn();
             return finbuild_upload_can_access_bank_case($pdo, $caseId, $user);

@@ -135,6 +135,21 @@ if ($userRole === 'bank' && $bankCaseId > 0) {
         finbuild_zip_add_file($zip, finbuild_zip_resolve_path($relPath), $orig, $usedNames, $added);
     }
 
+    try {
+        require_once __DIR__ . '/includes/bg_documents.php';
+        $generated = finbank_bg_docs_list_for_case($pdo, $bankCaseId);
+        foreach ($generated as $g) {
+            $relPath = (string) ($g['file_path'] ?? '');
+            if ($relPath === '') {
+                continue;
+            }
+            $orig = finbuild_zip_safe_name((string) ($g['original_name'] ?? 'file'));
+            finbuild_zip_add_file($zip, finbuild_zip_resolve_path($relPath), $orig, $usedNames, $added);
+        }
+    } catch (Throwable) {
+        // пакет менеджера всё равно отдаём
+    }
+
     $zip->close();
 
     if ($added === 0) {

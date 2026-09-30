@@ -7,6 +7,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/includes/bank_portal.php';
 require_once __DIR__ . '/includes/notification_events.php';
+require_once __DIR__ . '/includes/bg_documents.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
@@ -163,6 +164,12 @@ try {
         );
         $log->execute([$caseId]);
         $statusLog = finbank_bank_case_status_log_append_files($pdo, $log->fetchAll(PDO::FETCH_ASSOC));
+        $generatedDocs = [];
+        try {
+            $generatedDocs = finbank_bg_docs_list_for_case($pdo, $caseId);
+        } catch (Throwable) {
+            $generatedDocs = [];
+        }
         $productStatus = (string) ($applicationProduct['status'] ?? '');
         $caseStatus = (string) ($caseRow['status'] ?? '');
         $productFailed = finbank_product_status_is_failed($productStatus);
@@ -176,6 +183,7 @@ try {
             'application' => $application,
             'application_product' => $applicationProduct,
             'package' => $pkg,
+            'generated_docs' => $generatedDocs,
             'messages' => $messages,
             'status_log' => $statusLog,
             'status_label_bank' => finbank_bank_display_status_label($caseStatus, $productStatus),
@@ -409,7 +417,37 @@ try {
             throw $e;
         }
         notify_bank_case_status_changed($pdo, $caseId, $userId, $old, $newStatus, $comment);
-        json_out(['success' => true]);
+
+        $generatedDocs = null;
+        $generateError = null;
+        if ($newStatus === FINBANK_STATUS_BG_ISSUED) {
+            try {
+                $applicationId = (int) ($c['application_id'] ?? 0);
+                if ($applicationId <= 0) {
+                    $apId = (int) ($c['application_product_id'] ?? 0);
+                    if ($apId > 0) {
+                        $st = $pdo->prepare('SELECT application_id FROM application_products WHERE id = ? LIMIT 1');
+                        $st->execute([$apId]);
+                        $applicationId = (int) $st->fetchColumn();
+                    }
+                }
+                if ($applicationId > 0) {
+                    $generatedDocs = finbank_bg_docs_generate_for_case($pdo, $caseId, $applicationId, $userId);
+                }
+            } catch (Throwable $e) {
+                $generateError = $e->getMessage();
+                $generatedDocs = [];
+            }
+        }
+
+        $out = ['success' => true];
+        if ($generatedDocs !== null) {
+            $out['generated_docs'] = $generatedDocs;
+        }
+        if ($generateError !== null) {
+            $out['generate_warning'] = 'Документы не сформированы: ' . $generateError;
+        }
+        json_out($out);
     }
 
     json_out(['success' => false, 'error' => 'Неизвестное действие']);
