@@ -112,12 +112,14 @@ if ($termMonths > 0) {
 }
 $mgrBankCommentHtml = trim((string) ($caseRow['manager_comment'] ?? ''));
 $isKamcomBank = finbank_portal_is_kamcom($bankPortalCode);
+$showBankMethodology = finbank_portal_has_methodology($bankPortalCode);
+$showBankAnalytics = !$isKamcomBank;
 ?>
 <link rel="stylesheet" href="assets/css/application_tabs.css">
-<?php if (!$isKamcomBank): ?>
+<?php if ($showBankAnalytics): ?>
 <link rel="stylesheet" href="assets/css/company_analytics.css?v=<?= (int) (@filemtime(__DIR__ . '/assets/css/company_analytics.css') ?: time()) ?>">
 <?php endif; ?>
-<?php if ($isKamcomBank): ?>
+<?php if ($showBankMethodology): ?>
 <link rel="stylesheet" href="assets/css/bank_methodology.css?v=<?= (int) (@filemtime(__DIR__ . '/assets/css/bank_methodology.css') ?: time()) ?>">
 <?php endif; ?>
 
@@ -134,14 +136,14 @@ $isKamcomBank = finbank_portal_is_kamcom($bankPortalCode);
             <i class="bi bi-folder2-open me-2"></i><span class="tab-label">Документы</span>
         </button>
     </li>
-    <?php if (!$isKamcomBank): ?>
+    <?php if ($showBankAnalytics): ?>
     <li class="nav-item" role="presentation">
         <button class="nav-link" id="bank-analytics-tab" data-bs-toggle="tab" data-bs-target="#bankAppAnalytics" type="button" role="tab" aria-controls="bankAppAnalytics" aria-selected="false">
             <i class="bi bi-graph-up me-2"></i><span class="tab-label">Аналитика</span>
         </button>
     </li>
     <?php endif; ?>
-    <?php if ($isKamcomBank): ?>
+    <?php if ($showBankMethodology): ?>
     <li class="nav-item" role="presentation">
         <button class="nav-link" id="bank-methodology-tab" data-bs-toggle="tab" data-bs-target="#bankAppMethodology" type="button" role="tab" aria-controls="bankAppMethodology" aria-selected="false">
             <i class="bi bi-clipboard2-check me-2"></i><span class="tab-label">Банковская методика</span>
@@ -342,7 +344,7 @@ $isKamcomBank = finbank_portal_is_kamcom($bankPortalCode);
     </div>
 </div>
 
-<?php if (!$isKamcomBank): ?>
+<?php if ($showBankAnalytics): ?>
 <div class="tab-pane fade" id="bankAppAnalytics" role="tabpanel" aria-labelledby="bank-analytics-tab">
     <div class="row">
         <div class="col-12">
@@ -354,7 +356,7 @@ $isKamcomBank = finbank_portal_is_kamcom($bankPortalCode);
 </div>
 <?php endif; ?>
 
-<?php if ($isKamcomBank): ?>
+<?php if ($showBankMethodology): ?>
 <div class="tab-pane fade" id="bankAppMethodology" role="tabpanel" aria-labelledby="bank-methodology-tab">
     <?php require __DIR__ . '/includes/partials/bank_methodology_tab.php'; ?>
 </div>
@@ -586,17 +588,19 @@ $isKamcomBank = finbank_portal_is_kamcom($bankPortalCode);
 }
 </style>
 
-<?php if (!$isKamcomBank): ?>
+<?php if ($showBankAnalytics): ?>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="assets/js/company_analytics.js?v=<?= (int) (@filemtime(__DIR__ . '/assets/js/company_analytics.js') ?: time()) ?>"></script>
 <?php endif; ?>
-<?php if ($isKamcomBank): ?>
+<?php if ($showBankMethodology): ?>
 <script src="assets/js/bank_methodology.js?v=<?= (int) (@filemtime(__DIR__ . '/assets/js/bank_methodology.js') ?: time()) ?>"></script>
 <?php endif; ?>
 <script>
 (function () {
     const caseId = <?= (int) $caseId ?>;
     const isKamcomBank = <?= $isKamcomBank ? 'true' : 'false' ?>;
+    const showBankMethodology = <?= $showBankMethodology ? 'true' : 'false' ?>;
+    const showBankAnalytics = <?= $showBankAnalytics ? 'true' : 'false' ?>;
     const bankChatUserId = <?= (int) ($_SESSION['user_id'] ?? 0) ?>;
     const statusHistoryLabels = <?= json_encode([
         FINBANK_STATUS_DRAFT => finbank_case_status_label_history(FINBANK_STATUS_DRAFT),
@@ -1389,7 +1393,7 @@ $isKamcomBank = finbank_portal_is_kamcom($bankPortalCode);
             sf.addEventListener('change', refreshBankStatusFileChips);
         }
         load();
-        if (!isKamcomBank && typeof initCompanyAnalytics === 'function') {
+        if (showBankAnalytics && typeof initCompanyAnalytics === 'function') {
             initCompanyAnalytics({
                 applicationId: <?= (int) $applicationId ?>,
                 readOnly: false,
