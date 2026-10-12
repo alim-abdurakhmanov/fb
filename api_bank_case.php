@@ -175,7 +175,7 @@ try {
         $log->execute([$caseId]);
         $statusLog = finbank_bank_case_status_log_append_files($pdo, $log->fetchAll(PDO::FETCH_ASSOC));
         $generatedDocs = [];
-        if (finbank_user_is_kamcom($pdo, $currentUser)) {
+        if (finbank_user_is_noosfera($pdo, $currentUser)) {
             try {
                 $generatedDocs = finbank_bg_docs_list_for_case($pdo, $caseId);
             } catch (Throwable) {

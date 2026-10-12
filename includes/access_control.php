@@ -51,7 +51,7 @@ function finbuild_access_permission_defs(): array
         'methodology.view' => [
             'label' => 'Банковская методика',
             'group' => 'Заявки',
-            'hint' => 'Вкладка «Банковская методика» на карточке заявки — только для руководителя. В ЛК банка — только у Камкомбанка.',
+            'hint' => 'Вкладка «Банковская методика» на карточке заявки — только для руководителя. В ЛК банка — только у Ноосферы.',
             'applicable_roles' => ['director'],
         ],
         'structure.view' => [
@@ -160,7 +160,7 @@ function finbuild_access_default_matrix(): array
         $matrix['privacy.see_owner_identity'][$r] = true;
         $matrix['privacy.staff_identity_visible_to_owner'][$r] = true;
     }
-    // Банковская методика у сотрудников — только руководитель (в ЛК — только Камкомбанк)
+    // Банковская методика у сотрудников — только руководитель (в ЛК — только Ноосфера)
     $matrix['methodology.view']['director'] = true;
     $matrix['stats.monthly']['director'] = true;
     $matrix['access_rights.manage']['director'] = true;
@@ -309,7 +309,7 @@ function finbuild_access_merge_config(array $defaults, array $stored): array
     $out['matrix']['access_rights.manage']['director'] = true;
     $out['matrix']['applications.view_all']['director'] = true;
 
-    // Банковская методика: только руководитель (ЛК банка Камком — отдельно от матрицы)
+    // Банковская методика: только руководитель (ЛК банка Ноосфера — отдельно от матрицы)
     if (isset($out['matrix']['methodology.view'])) {
         foreach (finbuild_access_role_keys() as $role) {
             $out['matrix']['methodology.view'][$role] = ($role === 'director');
@@ -396,7 +396,7 @@ function finbuild_can_work_with_banks(?array $user = null): bool
     return finbuild_can('banks.work', $user);
 }
 
-/** Вкладка «Банковская методика» на карточке заявки (сотрудники). В ЛК банка — только Камкомбанк. */
+/** Вкладка «Банковская методика» на карточке заявки (сотрудники). В ЛК банка — только Ноосфера. */
 function finbuild_can_view_methodology(?array $user = null): bool
 {
     return finbuild_can('methodology.view', $user);
