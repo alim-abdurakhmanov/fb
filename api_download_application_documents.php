@@ -135,7 +135,7 @@ if ($userRole === 'bank' && $bankCaseId > 0) {
         finbuild_zip_add_file($zip, finbuild_zip_resolve_path($relPath), $orig, $usedNames, $added);
     }
 
-    if (finbank_user_is_kamcom($pdo, $bankUser)) {
+    if (finbank_user_is_noosfera($pdo, $bankUser)) {
         try {
             require_once __DIR__ . '/includes/bg_documents.php';
             $generated = finbank_bg_docs_list_for_case($pdo, $bankCaseId);

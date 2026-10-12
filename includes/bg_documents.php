@@ -9,10 +9,10 @@ require_once __DIR__ . '/bank_portal.php';
 require_once __DIR__ . '/bank_methodology/store.php';
 require_once __DIR__ . '/upload_access.php';
 
-/** Сгенерированные DOCX и автозаполнение — только для портала Камкомбанка. */
+/** Сгенерированные DOCX и автозаполнение — только для портала Ноосферы. */
 function finbank_bg_docs_enabled_for_bank_code(?string $bankCode): bool
 {
-    return finbank_portal_is_kamcom($bankCode);
+    return finbank_portal_has_generated_docs($bankCode);
 }
 
 function finbank_bg_docs_autoload(): void

@@ -113,6 +113,7 @@ if ($termMonths > 0) {
 $mgrBankCommentHtml = trim((string) ($caseRow['manager_comment'] ?? ''));
 $isKamcomBank = finbank_portal_is_kamcom($bankPortalCode);
 $showBankMethodology = finbank_portal_has_methodology($bankPortalCode);
+$showGeneratedDocs = finbank_portal_has_generated_docs($bankPortalCode);
 $showBankAnalytics = !$isKamcomBank;
 ?>
 <link rel="stylesheet" href="assets/css/application_tabs.css">
@@ -297,7 +298,7 @@ $showBankAnalytics = !$isKamcomBank;
     <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-2 mb-4">
         <div>
             <h4 class="mb-1">Документы</h4>
-            <p class="text-muted small mb-0"><?= $isKamcomBank ? 'Пакет документов по заявке, запросы банку и сформированные файлы' : 'Пакет документов по заявке и запросы менеджеру' ?></p>
+            <p class="text-muted small mb-0"><?= $showGeneratedDocs ? 'Пакет документов по заявке, запросы банку и сформированные файлы' : 'Пакет документов по заявке и запросы менеджеру' ?></p>
         </div>
         <div class="d-flex flex-wrap gap-2">
             <button type="button" class="btn btn-primary" id="bankRequestDocOpenBtn" data-bs-toggle="modal" data-bs-target="#bankRequestDocModal">
@@ -598,7 +599,7 @@ $showBankAnalytics = !$isKamcomBank;
 <script>
 (function () {
     const caseId = <?= (int) $caseId ?>;
-    const isKamcomBank = <?= $isKamcomBank ? 'true' : 'false' ?>;
+    const showGeneratedDocs = <?= $showGeneratedDocs ? 'true' : 'false' ?>;
     const showBankMethodology = <?= $showBankMethodology ? 'true' : 'false' ?>;
     const showBankAnalytics = <?= $showBankAnalytics ? 'true' : 'false' ?>;
     const bankChatUserId = <?= (int) ($_SESSION['user_id'] ?? 0) ?>;
@@ -909,7 +910,7 @@ $showBankAnalytics = !$isKamcomBank;
     function renderGeneratedDocs(docs) {
         const el = document.getElementById('bankGeneratedDocs');
         if (!el) return;
-        if (!isKamcomBank) {
+        if (!showGeneratedDocs) {
             el.innerHTML = '';
             return;
         }
@@ -1190,8 +1191,8 @@ $showBankAnalytics = !$isKamcomBank;
             }
         }
         renderBankDocRequests(data.bank_doc_requests || []);
-        renderGeneratedDocs(isKamcomBank ? (data.generated_docs || []) : []);
-        renderPackage(data.package, isKamcomBank ? (data.generated_docs || []) : []);
+        renderGeneratedDocs(showGeneratedDocs ? (data.generated_docs || []) : []);
+        renderPackage(data.package, showGeneratedDocs ? (data.generated_docs || []) : []);
         renderMessages(data.messages);
         renderLog(data.status_log || []);
         fillStatusSelect(data.allowed_statuses || []);

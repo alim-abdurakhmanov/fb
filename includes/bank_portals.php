@@ -4,10 +4,10 @@
  */
 declare(strict_types=1);
 
-/** Код портала Камкомбанка (сгенерированные DOCX — только здесь). */
+/** Код портала Камкомбанка. */
 const FINBANK_PORTAL_KAMCOM = 'kamcom';
 
-/** Код портала Ноосфера (банковская методика — только здесь). */
+/** Код портала Ноосфера (банковская методика и сгенерированные DOCX — только здесь). */
 const FINBANK_PORTAL_NOOSFERA = 'noosfera';
 
 /** @return array<string, array{code: string, name: string, label: string, bank_names: list<string>}> */
@@ -65,6 +65,12 @@ function finbank_user_is_noosfera(PDO $pdo, ?array $user): bool
 
 /** В ЛК банка вкладка «Банковская методика» доступна только Ноосфере. */
 function finbank_portal_has_methodology(?string $code): bool
+{
+    return finbank_portal_is_noosfera($code);
+}
+
+/** Сгенерированные DOCX (Решение / Предложение / Договор) — только ЛК Ноосферы. */
+function finbank_portal_has_generated_docs(?string $code): bool
 {
     return finbank_portal_is_noosfera($code);
 }
