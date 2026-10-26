@@ -1,0 +1,10 @@
+# ЧПУ для публичных страниц технической документации
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # /technical_documentation → technical_documentation.php
+    RewriteRule ^technical_documentation/?$ technical_documentation.php [L,QSA]
+
+    # /download_tech_doc?file=… → download_tech_doc.php
+    RewriteRule ^download_tech_doc/?$ download_tech_doc.php [L,QSA]
+</IfModule>
