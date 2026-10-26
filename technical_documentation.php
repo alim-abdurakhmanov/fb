@@ -55,14 +55,6 @@ $docs = [
             display: flex;
             flex-direction: column;
         }
-        .techdocs-nav-inner {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            max-width: 1140px;
-            margin: 0 auto;
-            padding: 0.75rem 1.25rem;
-        }
         .techdocs-main {
             flex: 1 0 auto;
             width: 100%;
@@ -164,10 +156,14 @@ $docs = [
 <body class="landing-body techdocs-page">
 
 <nav class="landing-nav" aria-label="Навигация">
-    <div class="techdocs-nav-inner">
+    <div class="landing-nav-inner">
         <a class="landing-brand" href="/">
             <span class="landing-brand__wordmark">FINBUILD</span>
         </a>
+        <div class="landing-nav-actions">
+            <a class="landing-btn landing-btn-outline d-none d-sm-inline-flex" href="login.php">Войти</a>
+            <a class="landing-btn landing-btn-primary" href="<?= htmlspecialchars(finbuild_landing_register_url(['role' => 'partner']), ENT_QUOTES | ENT_HTML5, 'UTF-8') ?>">Зарегистрироваться</a>
+        </div>
     </div>
 </nav>
 
