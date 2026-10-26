@@ -63,22 +63,6 @@ $docs = [
             margin: 0 auto;
             padding: 0.75rem 1.25rem;
         }
-        .techdocs-nav-home {
-            color: var(--landing-muted);
-            text-decoration: none;
-            font-size: 0.9rem;
-            font-weight: 600;
-            padding: 0.45rem 1rem;
-            border-radius: 10px;
-            border: 1px solid rgba(15, 23, 42, 0.12);
-            background: #fff;
-            transition: color 0.15s, background 0.15s, border-color 0.15s;
-        }
-        .techdocs-nav-home:hover {
-            color: var(--landing-accent);
-            background: var(--landing-accent-soft);
-            border-color: rgba(37, 99, 235, 0.25);
-        }
         .techdocs-main {
             flex: 1 0 auto;
             width: 100%;
