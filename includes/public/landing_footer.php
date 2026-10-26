@@ -53,7 +53,7 @@
             <p class="text-muted small mb-0 mt-1">Платформа банковских гарантий</p>
         </div>
         <div class="d-flex gap-2 flex-wrap justify-content-center">
-            <a class="landing-btn landing-btn-outline" href="technical_documentation.php">Техническая документация</a>
+            <a class="landing-btn landing-btn-outline" href="/technical_documentation">Техническая документация</a>
             <a class="landing-btn landing-btn-outline" href="login.php">Личный кабинет</a>
         </div>
     </div>

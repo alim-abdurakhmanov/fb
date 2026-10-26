@@ -2,6 +2,7 @@
 /**
  * Публичная страница технической документации FinBuild.
  * Доступна без авторизации.
+ * ЧПУ: /technical_documentation (см. корневой .htaccess).
  */
 declare(strict_types=1);
 
@@ -36,6 +37,7 @@ $docs = [
     <title>Техническая документация — FinBuild</title>
     <meta name="description" content="Техническая документация ПО FinBuild: описание функциональных характеристик, инструкция по установке и инструкция по эксплуатации.">
     <meta name="robots" content="index,follow">
+    <link rel="canonical" href="/technical_documentation">
     <link rel="icon" href="assets/favicons/favicon.ico" sizes="any">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -44,7 +46,26 @@ $docs = [
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
     <link rel="stylesheet" href="assets/css/landing.css?v=<?= (int) (@filemtime(__DIR__ . '/assets/css/landing.css') ?: time()) ?>">
     <style>
+        html {
+            height: 100%;
+        }
+        body.landing-body.techdocs-page {
+            min-height: 100%;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        .techdocs-nav-inner {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            max-width: 1140px;
+            margin: 0 auto;
+            padding: 0.75rem 1.25rem;
+        }
         .techdocs-main {
+            flex: 1 0 auto;
+            width: 100%;
             max-width: 820px;
             margin: 0 auto;
             padding: 2.5rem 1.25rem 4rem;
@@ -134,23 +155,19 @@ $docs = [
             color: var(--landing-muted);
             font-size: 0.9rem;
         }
+        .techdocs-page .landing-footer {
+            flex-shrink: 0;
+            margin-top: auto;
+        }
     </style>
 </head>
-<body class="landing-body">
+<body class="landing-body techdocs-page">
 
 <nav class="landing-nav" aria-label="Навигация">
-    <div class="landing-nav-inner">
-        <a class="landing-brand" href="index.php">
+    <div class="techdocs-nav-inner">
+        <a class="landing-brand" href="/">
             <span class="landing-brand__wordmark">FINBUILD</span>
         </a>
-        <div class="landing-nav-links">
-            <a href="index.php">На главную</a>
-            <a href="technical_documentation.php" aria-current="page">Документация</a>
-        </div>
-        <div class="landing-nav-actions">
-            <a class="landing-btn landing-btn-outline d-none d-sm-inline-flex" href="login.php">Войти</a>
-            <a class="landing-btn landing-btn-primary" href="<?= htmlspecialchars(finbuild_landing_register_url(['role' => 'partner']), ENT_QUOTES | ENT_HTML5, 'UTF-8') ?>">Зарегистрироваться</a>
-        </div>
     </div>
 </nav>
 
@@ -174,7 +191,7 @@ $docs = [
                 </div>
                 <div class="techdocs-item__actions">
                     <a class="landing-btn landing-btn-primary"
-                       href="download_tech_doc.php?file=<?= rawurlencode($doc['file']) ?>">
+                       href="/download_tech_doc?file=<?= rawurlencode($doc['file']) ?>">
                         <i class="bi bi-download me-1" aria-hidden="true"></i>Скачать
                     </a>
                 </div>
@@ -195,8 +212,7 @@ $docs = [
             <p class="text-muted small mb-0 mt-1">Платформа банковских гарантий</p>
         </div>
         <div class="d-flex gap-2 flex-wrap justify-content-center">
-            <a class="landing-btn landing-btn-outline" href="index.php">На главную</a>
-            <a class="landing-btn landing-btn-outline" href="login.php">Личный кабинет</a>
+            <a class="landing-btn landing-btn-outline" href="/">На главную</a>
         </div>
     </div>
 </footer>
