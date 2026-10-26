@@ -181,7 +181,9 @@ $docs = [
 
 <nav class="landing-nav" aria-label="Навигация">
     <div class="techdocs-nav-inner">
-        <a class="techdocs-nav-home" href="/">На главную</a>
+        <a class="landing-brand" href="/">
+            <span class="landing-brand__wordmark">FINBUILD</span>
+        </a>
     </div>
 </nav>
 
