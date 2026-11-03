@@ -28,3 +28,14 @@ Thumbs.db
 .idea/
 .vscode/
 *.log
+
+# Локальный мусор / черновики (не для продакшена)
+*.bak
+*.tmp
+*.swp
+*~
+*.placeholders.txt
+/mail_test.php
+/photo_*.jpg
+/photo_*.jpeg
+/photo_*.png
