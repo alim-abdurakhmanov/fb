@@ -1,0 +1,37 @@
+services:
+  web:
+    build: .
+    ports:
+      - "8080:80"
+    volumes:
+      # Только проект — без Windows / Open Server
+      - ./:/var/www/html
+    environment:
+      DB_HOST: db
+      DB_NAME: finbuild_web_dev
+      DB_USER: finbuild
+      DB_PASS: finbuild
+      SITE_BASE_URL: http://localhost:8080
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: mysql:8.0
+    environment:
+      MYSQL_DATABASE: finbuild_web_dev
+      MYSQL_USER: finbuild
+      MYSQL_PASSWORD: finbuild
+      MYSQL_ROOT_PASSWORD: root
+    ports:
+      - "3306:3306"
+    volumes:
+      - finbuild_db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-proot"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  finbuild_db_data:
