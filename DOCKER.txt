@@ -1,0 +1,54 @@
+FinBuild — запуск в Docker (для эксперта / локальной проверки)
+==============================================================
+
+Что это
+-------
+Сайт поднимается в изолированном Linux-контейнере.
+Не нужен Windows Open Server. Видна только папка проекта.
+
+Требования
+----------
+- Docker Desktop: https://www.docker.com/products/docker-desktop/
+
+Запуск
+------
+1) Откройте терминал в корне проекта (рядом с docker-compose.yml).
+2) Выполните:
+
+   docker compose up -d --build
+
+3) Откройте в браузере:
+
+   http://localhost:8080
+
+Остановка
+---------
+   docker compose down
+
+База данных
+-----------
+MySQL внутри Docker:
+  host:     db   (из PHP / внутри сети Docker)
+  database: finbuild_web_dev
+  user:     finbuild
+  password: finbuild
+
+С вашего ПК (клиент БД): host 127.0.0.1, port 3306, те же логин/пароль.
+
+Схема БД
+--------
+Если база пустая — примените нужные SQL из папки migrations/
+через phpMyAdmin/клиент или:
+
+   docker compose exec db mysql -ufinbuild -pfinbuild finbuild_web_dev < migrations/ИМЯ_ФАЙЛА.sql
+
+Секреты
+-------
+Не кладите боевой .env и документы клиентов в архив/репозиторий.
+Для Docker используйте .env.docker.example (создаётся как .env автоматически).
+
+Поделиться доступом
+-------------------
+Вариант 1 (проще): отдать архив проекта + этот файл DOCKER.txt.
+Вариант 2: дать read-доступ к GitHub и эту же инструкцию.
+SSH на ваш Windows/Open Server для этого не нужен.
